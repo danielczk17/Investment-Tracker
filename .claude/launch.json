@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "investment-tracker",
+      "runtimeExecutable": "C:\\Users\\zi.kai.chee\\AppData\\Local\\Programs\\Python\\Python314\\python.exe",
+      "runtimeArgs": ["app.py"],
+      "port": 5000,
+      "autoPort": true
+    }
+  ]
+}

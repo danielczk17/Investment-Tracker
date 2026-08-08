@@ -1,0 +1,432 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investment Tracker</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+
+<header>
+  <h1><button onclick="switchTab('dashboard')" style="background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:0;letter-spacing:inherit">&#x1F4C8; Investment Tracker</button></h1>
+  <div class="header-right">
+    <div class="spinner" id="spinner"></div>
+    <span id="last-updated">—</span>
+    <button class="btn btn-ghost" onclick="refreshPrices()" style="padding:.35rem .75rem;font-size:.78rem;">
+      Refresh Prices
+    </button>
+    <div class="menu-wrap">
+      <button class="menu-btn" onclick="toggleMenu(event)">Menu &#9660;</button>
+      <div class="menu-dropdown" id="app-menu">
+        <a href="#" class="menu-item" onclick="closeMenu();doExport();return false;">
+          <span class="menu-item-icon">&#11015;</span> Export
+        </a>
+        <div class="menu-divider"></div>
+        <button class="menu-item" onclick="closeMenu();switchTab('settings')">
+          <span class="menu-item-icon">&#9881;</span> Settings
+        </button>
+        <button class="menu-item" onclick="closeMenu();openFeedback()">
+          <span class="menu-item-icon">&#9993;</span> Feedback
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Update notification banner ── -->
+<div id="update-banner" style="display:none">
+  <span id="update-banner-text"></span>
+  <a id="update-banner-link" href="#" target="_blank" rel="noopener">Download</a>
+  <button id="update-banner-close" onclick="dismissUpdate()" aria-label="Dismiss">&#x2715;</button>
+</div>
+
+<div class="container">
+
+  <!-- ── Summary strip ── -->
+  <div class="summary-strip">
+    <div class="summary-card">
+      <div class="lbl">Total Invested</div>
+      <div class="val" id="s-invested">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="lbl">Current Value</div>
+      <div class="val" id="s-value">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="lbl">Total Gain / Loss</div>
+      <div class="val" id="s-gl">—</div>
+      <div class="sub" id="s-gl-pct">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="lbl">Portfolio</div>
+      <div class="val" id="s-tickers">—</div>
+      <div class="sub" id="s-buys">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="lbl" style="display:flex;align-items:center;gap:.3rem;">
+        Realized + Dividends
+        <span class="realized-toggle">
+          <button class="tog-btn tog-active" id="tog-all" onclick="setRealizedView('all')">All-time</button>
+          <button class="tog-btn" id="tog-ytd" onclick="setRealizedView('ytd')">YTD</button>
+        </span>
+      </div>
+      <div class="val" id="s-realized-total">—</div>
+      <div class="realized-breakdown">
+        <div class="breakdown-row">
+          <span class="breakdown-lbl">Gains</span>
+          <span id="s-realized" class="breakdown-val neutral">—</span>
+        </div>
+        <div class="breakdown-row">
+          <span class="breakdown-lbl">Dividends</span>
+          <span id="s-realized-div" class="breakdown-val neutral">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="fx-note" style="font-size:.72rem;color:#94a3b8;margin:-0.5rem 0 1rem;padding:0 .25rem;"></div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="tab-btn" data-tab="transactions" onclick="switchTab('transactions')">Transactions</button>
+  </div>
+
+  <div id="tab-dashboard">
+
+  <!-- ── Performance ── -->
+  <div class="card" id="perf-card">
+    <div class="card-header">
+      <span class="card-title">Performance</span>
+      <div style="display:flex;align-items:center;gap:.35rem;margin-left:auto">
+        <button class="perf-btn" id="pb-1M"  onclick="setPerfPeriod('1M')">1M</button>
+        <button class="perf-btn" id="pb-3M"  onclick="setPerfPeriod('3M')">3M</button>
+        <button class="perf-btn" id="pb-6M"  onclick="setPerfPeriod('6M')">6M</button>
+        <button class="perf-btn" id="pb-1Y"  onclick="setPerfPeriod('1Y')">1Y</button>
+        <button class="perf-btn active" id="pb-ALL" onclick="setPerfPeriod('ALL')">ALL</button>
+      </div>
+    </div>
+    <div style="padding:.75rem 1.25rem 1rem">
+      <div id="perf-empty" class="empty">No history yet — data is recorded automatically each time prices load.</div>
+      <div id="perf-chart-area" style="display:none">
+        <div style="position:relative" id="perf-wrap">
+          <canvas id="perf-base" style="display:block;width:100%"></canvas>
+          <canvas id="perf-cross" style="display:block;width:100%;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+          <div id="perf-tip" style="position:absolute;display:none;background:#1e293b;color:#f8fafc;border-radius:6px;padding:.5rem .7rem;font-size:.78rem;pointer-events:none;white-space:nowrap;z-index:10;min-width:180px"></div>
+        </div>
+        <div id="perf-legend" style="display:flex;gap:.85rem;margin-top:.6rem;font-size:.75rem;color:#475569"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Winners / Losers ── -->
+  <div class="card" id="wl-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">Portfolio Breakdown</span>
+    </div>
+    <div style="padding:.75rem 1.25rem 1rem;display:grid;grid-template-columns:1fr 1fr;gap:1.25rem" id="wl-grid">
+      <div id="wl-winners"></div>
+      <div id="wl-losers"></div>
+    </div>
+  </div>
+
+  <div class="card" id="chart-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">Market Allocation</span>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-section">
+        <div class="chart-section-inner">
+          <div class="chart-sub-label">By Market</div>
+          <div class="donut-wrap">
+            <canvas id="pie-canvas"></canvas>
+            <div class="donut-center" id="pie-center">
+              <span class="donut-val">—</span>
+              <span class="donut-sub">by market</span>
+            </div>
+          </div>
+        </div>
+        <div class="legend-table" id="chart-legend"></div>
+      </div>
+      <div class="chart-section">
+        <div class="chart-section-inner">
+          <div class="chart-sub-label">By Industry</div>
+          <div class="donut-wrap">
+            <canvas id="industry-canvas"></canvas>
+            <div class="donut-center" id="industry-center">
+              <span class="donut-val">—</span>
+              <span class="donut-sub">by industry</span>
+            </div>
+          </div>
+        </div>
+        <div class="legend-table" id="industry-legend"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Holdings ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Holdings</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:.5rem">
+        <span style="font-size:.8rem;font-weight:600;color:#64748b">Search:</span>
+        <input id="holdings-search" type="text" placeholder="Ticker or name…"
+               oninput="holdingsSearch=this.value;holdingsPage=1;renderHoldings(lastHoldings)"
+               style="padding:.32rem .65rem;border:1px solid #e2e8f0;border-radius:.4rem;font-size:.8rem;width:175px;outline:none" />
+      </div>
+    </div>
+    <div class="table-wrap" id="holdings-wrap">
+      <div class="empty">No holdings yet — add a purchase in Transactions.</div>
+    </div>
+  </div>
+
+  </div><!-- end #tab-dashboard -->
+
+  <div id="tab-transactions" style="display:none">
+
+  <!-- ── Purchase Log ── -->
+  <div class="card" id="purchase-card">
+    <div class="card-header">
+      <span class="card-title">Purchase Log</span>
+      <div style="display:flex;align-items:center;gap:.6rem;margin-left:auto">
+        <span id="log-sel-count" style="font-size:.75rem;color:#64748b"></span>
+        <button class="btn btn-ghost" id="pb-backfill" onclick="backfillHistory()" style="padding:.25rem .55rem;font-size:.72rem" title="Compute performance history from purchase dates">Backfill History</button>
+        <span style="width:1px;height:14px;background:#e2e8f0;margin:0 .05rem"></span>
+        <button class="btn btn-edit" id="log-edit-btn" onclick="startEdit()" disabled>Edit</button>
+        <button class="btn btn-del"  id="log-delete-btn" onclick="deleteSelected()" disabled>Delete</button>
+        <button class="btn-toggle" id="log-btn" onclick="toggleLog()">
+          <span id="log-icon">&#x25BC;</span>
+          <span id="log-lbl">Hide</span>
+        </button>
+      </div>
+    </div>
+    <div class="collapsible open" id="log-body">
+      <div class="form-row" style="border-bottom:none">
+        <div class="fg">
+          <label for="f-ticker">Ticker</label>
+          <input id="f-ticker" type="text" placeholder="D05.SI" autocomplete="off"
+                 oninput="this.value=this.value.toUpperCase();scheduleTickerValidation('f')" />
+        </div>
+        <div class="fg">
+          <label for="f-market">Market</label>
+          <select id="f-market" onchange="updatePurchasePriceLabel();scheduleTickerValidation('f')"></select>
+        </div>
+        <div class="fg">
+          <label for="f-date">Date</label>
+          <input id="f-date" type="date" />
+        </div>
+        <div class="fg">
+          <label for="f-units">Units</label>
+          <input id="f-units" type="number" placeholder="0" min="1" step="1" />
+        </div>
+        <div class="fg">
+          <label for="f-price" id="f-price-label">Price/Unit (S$)</label>
+          <input id="f-price" type="number" placeholder="0.00" min="0.01" step="0.01" />
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.4rem;justify-content:flex-end">
+          <button class="btn btn-primary" id="submit-btn" onclick="submitPurchase()">Add</button>
+          <button class="btn btn-ghost" id="cancel-btn" onclick="cancelEdit()" style="display:none;font-size:.78rem;padding:.35rem .6rem">Cancel</button>
+        </div>
+      </div>
+      <div id="f-ticker-hint" style="padding:.1rem 1.25rem .4rem;font-size:11px;line-height:1.3;border-bottom:1px solid #f1f5f9"></div>
+      <div class="table-wrap" id="log-wrap">
+        <div class="empty">No purchases recorded.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Realized Gains ── -->
+  <div class="card" id="sell-card">
+    <div class="card-header">
+      <span class="card-title">Realized Gains</span>
+      <div style="display:flex;align-items:center;gap:.6rem;margin-left:auto">
+        <span id="sell-total" style="font-size:.82rem;font-weight:600"></span>
+        <span id="sell-sel-count" style="font-size:.75rem;color:#64748b"></span>
+        <button class="btn btn-edit" id="sell-edit-btn" onclick="startSellEdit()" disabled>Edit</button>
+        <button class="btn btn-del" id="sell-delete-btn" onclick="deleteSelectedSells()" disabled>Delete</button>
+        <button class="btn-toggle" id="sell-btn" onclick="toggleSell()">
+          <span id="sell-icon">&#x25BC;</span>
+          <span id="sell-lbl">Hide</span>
+        </button>
+      </div>
+    </div>
+    <div class="collapsible open" id="sell-body">
+      <div class="form-row" style="grid-template-columns:1.4fr 1fr 1fr 1.4fr 1.4fr auto;border-bottom:none">
+        <div class="fg">
+          <label for="s-ticker">Ticker</label>
+          <input id="s-ticker" type="text" placeholder="D05.SI" autocomplete="off"
+                 oninput="this.value=this.value.toUpperCase();scheduleTickerValidation('s')" />
+        </div>
+        <div class="fg">
+          <label for="s-market">Market</label>
+          <select id="s-market" onchange="updateSellPriceLabel();scheduleTickerValidation('s')"></select>
+        </div>
+        <div class="fg">
+          <label for="s-date">Date</label>
+          <input id="s-date" type="date" />
+        </div>
+        <div class="fg">
+          <label for="s-units">Units Sold</label>
+          <input id="s-units" type="number" placeholder="0" min="1" step="1" />
+        </div>
+        <div class="fg">
+          <label for="s-price" id="s-price-label">Price/Unit (S$)</label>
+          <input id="s-price" type="number" placeholder="0.00" min="0.01" step="0.01" />
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.4rem;justify-content:flex-end">
+          <button class="btn btn-primary" id="sell-submit-btn" onclick="addSell()">Sell</button>
+          <button class="btn btn-ghost" id="sell-cancel-btn" onclick="cancelSellEdit()" style="display:none;font-size:.78rem;padding:.35rem .6rem">Cancel</button>
+        </div>
+      </div>
+      <div id="s-ticker-hint" style="padding:.1rem 1.25rem .4rem;font-size:11px;line-height:1.3;border-bottom:1px solid #f1f5f9"></div>
+      <div class="table-wrap" id="sell-wrap">
+        <div class="empty">No sales recorded.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Dividend Income ── -->
+  <div class="card" id="div-card">
+    <div class="card-header">
+      <span class="card-title">Dividend Income</span>
+      <div style="display:flex;align-items:center;gap:.6rem;margin-left:auto">
+        <span id="div-total" style="font-size:.82rem;font-weight:600;color:#16a34a"></span>
+        <span id="div-sel-count" style="font-size:.75rem;color:#64748b"></span>
+        <button class="btn btn-edit" id="div-edit-btn" onclick="startDivEdit()" disabled>Edit</button>
+        <button class="btn btn-del" id="div-delete-btn" onclick="deleteSelectedDividends()" disabled>Delete</button>
+        <button class="btn-toggle" id="div-btn" onclick="toggleDiv()">
+          <span id="div-icon">&#x25BC;</span>
+          <span id="div-lbl">Hide</span>
+        </button>
+      </div>
+    </div>
+    <div class="collapsible open" id="div-body">
+      <div id="div-chart-wrap" style="padding:.85rem 1.25rem .5rem;border-bottom:1px solid #f1f5f9;display:none">
+        <p style="font-size:.72rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem">Monthly Income (S$)</p>
+        <canvas id="div-chart" style="display:block;width:100%"></canvas>
+        <div id="div-chart-legend" style="display:flex;flex-wrap:wrap;gap:.35rem .75rem;margin-top:.55rem;font-size:.75rem;color:#475569"></div>
+      </div>
+      <div class="table-wrap" id="div-wrap">
+        <div class="empty">No dividends recorded.</div>
+      </div>
+      <div class="form-row" style="grid-template-columns:1.4fr 1fr 1fr 1.4fr auto;border-top:1px solid #f1f5f9">
+        <div class="fg">
+          <label for="d-ticker">Ticker</label>
+          <input id="d-ticker" type="text" placeholder="D05.SI" autocomplete="off"
+                 oninput="this.value=this.value.toUpperCase();scheduleTickerValidation('d')" />
+        </div>
+        <div class="fg">
+          <label for="d-market">Market</label>
+          <select id="d-market" onchange="updateDivAmountLabel();scheduleTickerValidation('d')"></select>
+        </div>
+        <div class="fg">
+          <label for="d-date">Date</label>
+          <input id="d-date" type="date" />
+        </div>
+        <div class="fg">
+          <label for="d-amount" id="d-amount-label">Amount (US$)</label>
+          <input id="d-amount" type="number" placeholder="0.00" min="0.01" step="0.01" />
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.4rem;justify-content:flex-end">
+          <button class="btn btn-primary" id="div-submit-btn" onclick="addDividend()">Add</button>
+          <button class="btn btn-ghost" id="div-cancel-btn" onclick="cancelDivEdit()" style="display:none;font-size:.78rem;padding:.35rem .6rem">Cancel</button>
+        </div>
+      </div>
+      <div id="d-ticker-hint" style="padding:.1rem 1.25rem .4rem;font-size:11px;line-height:1.3"></div>
+    </div>
+  </div>
+
+  </div><!-- end #tab-transactions -->
+
+  <!-- ── Settings Tab ── -->
+  <div id="tab-settings" style="display:none">
+    <div class="card" style="max-width:680px">
+      <div class="card-header"><span class="card-title">Settings</span></div>
+      <div style="padding:1.25rem 1.5rem;display:flex;flex-direction:column;gap:1.5rem">
+
+        <!-- Base Currency -->
+        <div>
+          <p style="font-size:.8rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">Base Currency</p>
+          <p style="font-size:.8rem;color:#94a3b8;margin-bottom:.75rem">All portfolio totals and gains are converted to this currency.</p>
+          <select id="settings-base-ccy" style="padding:.5rem .75rem;border:1px solid #e2e8f0;border-radius:.4rem;font-size:.88rem;background:#fff;color:#1e293b;min-width:200px"></select>
+        </div>
+
+        <!-- Markets -->
+        <div>
+          <p style="font-size:.8rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">Markets</p>
+          <p style="font-size:.8rem;color:#94a3b8;margin-bottom:.75rem">Define the markets available for transactions. The suffix is appended to tickers when fetching prices from Yahoo Finance (leave blank for US markets).</p>
+          <table style="width:100%;border-collapse:collapse;font-size:.85rem" id="settings-markets-table">
+            <thead>
+              <tr style="border-bottom:1px solid #e2e8f0">
+                <th style="text-align:left;padding:.45rem .6rem;font-weight:600;color:#64748b;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em">Name</th>
+                <th style="text-align:left;padding:.45rem .6rem;font-weight:600;color:#64748b;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em">Currency</th>
+                <th style="text-align:left;padding:.45rem .6rem;font-weight:600;color:#64748b;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em">YF Suffix</th>
+                <th style="padding:.45rem .6rem;width:40px"></th>
+              </tr>
+            </thead>
+            <tbody id="settings-markets-body"></tbody>
+          </table>
+          <button class="btn btn-ghost" onclick="addSettingsMarketRow()" style="margin-top:.7rem;font-size:.8rem">+ Add Market</button>
+        </div>
+
+        <!-- Save -->
+        <div style="display:flex;gap:.75rem;align-items:center">
+          <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+          <span id="settings-status" style="font-size:.82rem;color:#16a34a;display:none">Saved.</span>
+        </div>
+      </div>
+    </div>
+  </div><!-- end #tab-settings -->
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+
+<!-- Feedback modal -->
+<div id="feedback-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header">
+      <span>Send Feedback</span>
+      <button onclick="closeFeedback()" title="Close">&#215;</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:1rem">
+      <div>
+        <label style="font-size:.78rem;font-weight:600;color:#64748b;display:block;margin-bottom:.45rem">Type</label>
+        <div style="display:flex;gap:.5rem">
+          <button class="feedback-type-btn active" data-type="Bug Report" onclick="setFeedbackType(this)">🐛 Bug Report</button>
+          <button class="feedback-type-btn" data-type="Feature Request" onclick="setFeedbackType(this)">💡 Feature Request</button>
+          <button class="feedback-type-btn" data-type="General" onclick="setFeedbackType(this)">💬 General</button>
+        </div>
+      </div>
+      <div>
+        <label for="feedback-msg" style="font-size:.78rem;font-weight:600;color:#64748b;display:block;margin-bottom:.45rem">Message</label>
+        <textarea id="feedback-msg" rows="5" placeholder="Describe the issue or suggestion…"
+          style="width:100%;padding:.55rem .7rem;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;resize:vertical;font-family:inherit;box-sizing:border-box;outline:none"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:.6rem">
+        <button class="btn btn-ghost" onclick="closeFeedback()" style="font-size:.82rem">Cancel</button>
+        <button class="btn btn-primary" onclick="submitFeedback()" style="font-size:.82rem">Send via Email</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sector override modal -->
+<div id="sector-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span>Set Category</span>
+      <button onclick="closeSectorModal()" title="Close">×</button>
+    </div>
+    <p style="font-size:.8rem;color:#64748b;margin:0 0 .9rem">Override the auto-detected category for these tickers.</p>
+    <div id="sector-modal-rows"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeSectorModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSectorOverrides()">Save</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

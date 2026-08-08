@@ -1,0 +1,29 @@
+# Build outputs
+dist/
+build/
+*.spec
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Personal data files (stored in AppData for packaged app, not for source control)
+portfolio.json
+dividends.json
+sells.json
+snapshots.json
+sector_overrides.json
+settings.json
+
+# IDE / OS files
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db

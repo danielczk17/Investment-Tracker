@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:PATH -split ';' | Where-Object { $_ -match 'python|conda|anaconda' -and \\(Test-Path $_\\) })",
+      "PowerShell($py = \"C:\\\\Users\\\\zi.kai.chee\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\"; & $py -m pip install flask yfinance 2>&1 | Select-Object -Last 10)",
+      "mcp__Claude_Browser__preview_start",
+      "PowerShell(Stop-Process -Id 30296 -Force)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue })",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "PowerShell(python -c \"import openpyxl; print\\(openpyxl.__version__\\)\" 2>&1)",
+      "PowerShell(python3 -c \"import openpyxl; print\\(openpyxl.__version__\\)\" 2>&1)",
+      "PowerShell(py -3.14 -c \"import openpyxl; print\\(openpyxl.__version__\\)\" 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\zi.kai.chee\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\" -c \"import openpyxl; print\\(openpyxl.__version__\\)\" 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\zi.kai.chee\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\\\\python.exe\" -m pip install openpyxl 2>&1)",
+      "PowerShell(head -20)",
+      "Bash(python3 -)",
+      "PowerShell($shell = New-Object -ComObject Shell.Application; $shell.Namespace\\('shell:Downloads'\\).Self.Path)"
+    ]
+  }
+}
