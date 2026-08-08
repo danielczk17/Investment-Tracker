@@ -821,9 +821,9 @@
     const chartH = H - PAD_T - PAD_B;
     const n      = filtered.length;
 
-    // Portfolio % return normalised to 0% at the start of the filtered period
-    const baseV    = filtered[0].value || 1;
-    const portPcts = filtered.map(s => (s.value - baseV) / baseV * 100);
+    // Portfolio % return = gain on cost basis at each point: (value - invested) / invested
+    // This stays meaningful even when new money is added over time, and matches the summary tile.
+    const portPcts = filtered.map(s => s.invested > 0 ? (s.value - s.invested) / s.invested * 100 : 0);
 
     // Align benchmark closes to each snapshot date (nearest trading day)
     function nearestBench(dateStr) {
