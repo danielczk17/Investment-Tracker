@@ -261,7 +261,7 @@
         <td><span class="badge badge-${h.market.toLowerCase()}">${esc(h.market)}</span></td>
         <td>${fmt(h.total_units, 2)}</td>
         <td>${fmtCcy(h.avg_price, h.currency)}</td>
-        <td>${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span>'}</td>
+        <td>${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span> <span title="Price unavailable — Yahoo Finance may be rate-limited or this ticker may be delisted." style="color:#f59e0b;cursor:help;font-size:.85em">&#9888;</span>'}</td>
         <td>${fmtCcy(h.total_invested, h.currency)}</td>
         <td>${h.current_value != null ? fmtCcy(h.current_value, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_amount)}">${h.gain_loss_amount != null ? fmtCcy(h.gain_loss_amount, h.currency) : '<span class="neutral">N/A</span>'}</td>
