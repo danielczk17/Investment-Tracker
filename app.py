@@ -504,6 +504,22 @@ def index():
     return render_template("index.html")
 
 
+_auto_backfill_done = False
+
+def _run_auto_backfill():
+    """Background thread: if purchases exist but snapshots are empty, rebuild history."""
+    global _auto_backfill_done
+    if _auto_backfill_done:
+        return
+    _auto_backfill_done = True
+    try:
+        if load_portfolio() and not load_snapshots():
+            with app.test_request_context():
+                api_backfill()
+    except Exception:
+        pass
+
+
 def _portfolio_response() -> dict:
     """Build the portfolio response and record a snapshot if prices are available."""
     result = build_response(load_portfolio(), load_sells())
@@ -511,6 +527,9 @@ def _portfolio_response() -> dict:
     ti = result["totals"]["total_invested"]
     if tv is not None and tv > 0:
         record_snapshot(tv, ti)
+    # Kick off auto-backfill once if snapshots are missing
+    if not _auto_backfill_done:
+        threading.Thread(target=_run_auto_backfill, daemon=True).start()
     return result
 
 
@@ -845,6 +864,17 @@ def _get_hist_price(series: "pd.Series | None", target: _date) -> float | None:
         return float(subset.iloc[-1]) if not subset.empty else None
     except Exception:
         return None
+
+
+@app.route("/api/snapshots/reset", methods=["POST"])
+def api_snapshots_reset():
+    """POST — clear all snapshots and rebuild from scratch via backfill.
+    Returns same response as /api/backfill.
+    """
+    with _write_lock:
+        save_snapshots([])
+    # Delegate to backfill which does the full rebuild
+    return api_backfill()
 
 
 @app.route("/api/backfill", methods=["POST"])

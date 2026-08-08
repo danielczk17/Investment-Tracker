@@ -374,6 +374,17 @@
           <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
           <span id="settings-status" style="font-size:.82rem;color:#16a34a;display:none">Saved.</span>
         </div>
+
+        <!-- Danger zone -->
+        <div style="margin-top:2rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
+          <div style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:.75rem">Maintenance</div>
+          <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+            <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#ef4444;font-size:.82rem" onclick="rebuildPerformanceHistory()">
+              Rebuild Performance History
+            </button>
+            <span style="font-size:.78rem;color:#94a3b8">Clears and recalculates all monthly snapshots from your purchase records.</span>
+          </div>
+        </div>
       </div>
     </div>
   </div><!-- end #tab-settings -->

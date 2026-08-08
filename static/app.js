@@ -1982,6 +1982,20 @@
     renderSettingsPage();
   }
 
+  async function rebuildPerformanceHistory() {
+    if (!confirm('This will clear all performance history and rebuild it from your purchase records. Continue?')) return;
+    showToast('Rebuilding performance history…', 8000);
+    try {
+      const res  = await fetch('/api/snapshots/reset', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      await fetchSnapshots();
+      showToast(`Done — rebuilt ${data.added} monthly snapshot${data.added !== 1 ? 's' : ''}.`, 4000);
+    } catch (err) {
+      showToast('Rebuild failed — ' + err.message);
+    }
+  }
+
   async function saveSettings() {
     const base_currency = document.getElementById('settings-base-ccy').value;
     const rows = document.querySelectorAll('#settings-markets-body tr[data-mrow]');
