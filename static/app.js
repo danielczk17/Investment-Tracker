@@ -2100,7 +2100,10 @@
               const market = _YF_EXCHANGE_MARKET[item.dataset.exchange];
               if (market && marketSel) {
                 const opt = [...marketSel.options].find(o => o.value === market);
-                if (opt) marketSel.value = market;
+                if (opt) {
+                  marketSel.value = market;
+                  marketSel.dispatchEvent(new Event('change'));
+                }
               }
               dropdown.style.display = 'none';
               scheduleTickerValidation(prefix);
