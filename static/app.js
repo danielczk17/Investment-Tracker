@@ -775,7 +775,7 @@
       snapData  = await res.json();
       if (snapData.length) {
         try {
-          const bRes = await fetch('/api/benchmark?from=' + snapData[0].date);
+          const bRes = await fetch('/api/benchmark?from=' + snapData[0].date + '&ticker=' + (appSettings?.benchmark_ticker || 'SPY'));
           benchData = await bRes.json();
         } catch { benchData = []; }
       }
@@ -959,7 +959,7 @@
       </span>
       ${hasBench ? `<span style="display:flex;align-items:center;gap:.35rem">
         <span style="display:inline-block;width:18px;height:0;border-top:2px dashed #f97316;flex-shrink:0"></span>
-        SPY (benchmark)
+        ${(appSettings?.benchmark_ticker || 'SPY')} (benchmark)
       </span>` : ''}`;
 
     crossCanvas.onmousemove  = e => _perfHover(e);
@@ -1941,6 +1941,8 @@
       tbody.insertAdjacentHTML('beforeend', settingsMarketRowHTML(m, i));
     });
     document.getElementById('settings-status').style.display = 'none';
+    const benchEl = document.getElementById('settings-benchmark');
+    if (benchEl) benchEl.value = appSettings?.benchmark_ticker || 'SPY';
   }
 
   function settingsMarketRowHTML(m, i) {
@@ -2012,7 +2014,7 @@
       const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_currency, markets }),
+        body: JSON.stringify({ base_currency, markets, benchmark_ticker: document.getElementById('settings-benchmark')?.value.trim().toUpperCase() || 'SPY' }),
       });
       const data = await res.json();
       if (!res.ok) { showToast(data.error || 'Save failed.'); return; }

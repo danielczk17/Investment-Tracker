@@ -369,6 +369,23 @@
           <button class="btn btn-ghost" onclick="addSettingsMarketRow()" style="margin-top:.7rem;font-size:.8rem">+ Add Market</button>
         </div>
 
+        <!-- Benchmark -->
+        <div>
+          <p style="font-size:.8rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">Performance Benchmark</p>
+          <p style="font-size:.8rem;color:#94a3b8;margin-bottom:.75rem">Ticker to compare your portfolio against in the Performance chart. Enter any Yahoo Finance ticker (e.g. SPY, QQQ, VTI, IWDA.L, ES3.SI).</p>
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <input id="settings-benchmark" type="text" placeholder="e.g. SPY"
+              style="padding:.5rem .75rem;border:1px solid #e2e8f0;border-radius:.4rem;font-size:.88rem;background:#fff;color:#1e293b;width:130px;text-transform:uppercase"
+              oninput="this.value=this.value.toUpperCase()">
+            <span style="font-size:.78rem;color:#94a3b8">Presets:</span>
+            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='SPY'">SPY</button>
+            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='QQQ'">QQQ</button>
+            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='VTI'">VTI</button>
+            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='IWDA.L'">IWDA.L</button>
+            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='ES3.SI'">ES3.SI</button>
+          </div>
+        </div>
+
         <!-- Save -->
         <div style="display:flex;gap:.75rem;align-items:center">
           <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>

@@ -221,7 +221,7 @@ def load_settings() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {"base_currency": "SGD", "markets": _DEFAULT_MARKETS}
+    return {"base_currency": "SGD", "markets": _DEFAULT_MARKETS, "benchmark_ticker": "SPY"}
 
 
 def save_settings_file(settings: dict) -> None:
@@ -1182,12 +1182,13 @@ def api_validate_ticker():
 
 @app.route("/api/benchmark")
 def api_benchmark():
-    """GET ?from=YYYY-MM-DD — return daily SPY closes from that date for benchmark comparison."""
+    """GET ?from=YYYY-MM-DD&ticker=SPY — return daily closes for the benchmark ticker."""
     from_date = request.args.get("from", "")
+    ticker    = request.args.get("ticker", "SPY").strip().upper() or "SPY"
     if not from_date:
         return jsonify([])
     try:
-        hist = yf.Ticker("SPY").history(start=from_date)
+        hist = yf.Ticker(ticker).history(start=from_date)
         result = [
             {"date": d.strftime("%Y-%m-%d"), "close": round(float(row["Close"]), 4)}
             for d, row in hist.iterrows()
@@ -1300,9 +1301,11 @@ def api_save_settings():
             return jsonify({"error": "Each market requires a name and currency."}), 400
         if m["currency"] not in SUPPORTED_CURRENCIES:
             return jsonify({"error": f"Unsupported currency for market {m['name']}: {m['currency']}"}), 400
+    benchmark_ticker = data.get("benchmark_ticker", "SPY").strip().upper() or "SPY"
     new_settings = {
-        "base_currency": base_currency,
-        "markets":       [{"name": m["name"], "currency": m["currency"], "suffix": m.get("suffix", "")} for m in markets],
+        "base_currency":    base_currency,
+        "markets":          [{"name": m["name"], "currency": m["currency"], "suffix": m.get("suffix", "")} for m in markets],
+        "benchmark_ticker": benchmark_ticker,
     }
     save_settings_file(new_settings)
     apply_settings(new_settings)
