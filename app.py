@@ -389,9 +389,10 @@ def build_response(purchases: list, sells: list | None = None) -> dict:
     for p in purchases:
         key = p["ticker"].upper()
         if key not in agg:
-            agg[key] = {"ticker": key, "market": p["market"], "total_units": 0.0, "total_cost": 0.0}
+            agg[key] = {"ticker": key, "market": p["market"], "total_units": 0.0, "total_cost": 0.0, "total_fees": 0.0}
         agg[key]["total_units"] += float(p["units"])
-        agg[key]["total_cost"] += float(p["units"]) * float(p["price_paid"])
+        agg[key]["total_cost"] += float(p["units"]) * float(p["price_paid"]) + float(p.get("fees", 0))
+        agg[key]["total_fees"] += float(p.get("fees", 0))
 
     # Aggregate sold units per ticker
     sold_units: dict[str, float] = {}
@@ -452,6 +453,7 @@ def build_response(purchases: list, sells: list | None = None) -> dict:
             "total_units":        units,
             "avg_price":          avg_price,
             "total_invested":     cost,
+            "total_fees":         round(h.get("total_fees", 0.0), 2),
             "current_price":      current_price,
             "current_value":      current_value,
             "current_value_base": current_value_base,
@@ -555,6 +557,7 @@ def api_add_purchase():
         "date":       str(data["date"]),
         "units":      float(data["units"]),
         "price_paid": float(data["price_paid"]),
+        "fees":       float(data.get("fees") or 0),
         "market":     data["market"],
     }
 
@@ -585,6 +588,7 @@ def api_update_purchase(record_id):
             "date":       str(data["date"]),
             "units":      float(data["units"]),
             "price_paid": float(data["price_paid"]),
+            "fees":       float(data.get("fees") or 0),
             "market":     data["market"],
         }
         save_portfolio(purchases)
@@ -1051,13 +1055,15 @@ def _build_export_buf() -> tuple:
     # ── Sheet 1: Purchases ────────────────────────────────────────────────────
     ws1 = wb.active
     ws1.title = "Purchases"
-    write_headers(ws1, ["Date", "Ticker", "Market", "Units", "Price Paid/Unit", "Total Cost", "Currency"])
+    write_headers(ws1, ["Date", "Ticker", "Market", "Units", "Price Paid/Unit", "Fees", "Total Cost", "Currency"])
     for p in sorted(purchases, key=lambda x: x["date"]):
-        ccy = MARKET_CURRENCY.get(p["market"], "USD")
+        ccy  = MARKET_CURRENCY.get(p["market"], "USD")
+        fees = float(p.get("fees") or 0)
         ws1.append([
             p["date"], p["ticker"], p["market"],
             float(p["units"]), float(p["price_paid"]),
-            round(float(p["units"]) * float(p["price_paid"]), 2),
+            fees,
+            round(float(p["units"]) * float(p["price_paid"]) + fees, 2),
             ccy,
         ])
     auto_width(ws1)
@@ -1195,9 +1201,9 @@ def _build_import_template_buf() -> io.BytesIO:
     # Sheet 1 — Purchases
     ws1 = wb.active; ws1.title = "Purchases"
     _make_sheet(ws1,
-        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Units", "Price Per Unit"],
-        ["2024-01-15", "AAPL", "US", 10, 185.50],
-        [20, 12, 10, 10, 16])
+        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Units", "Price Per Unit", "Fees (optional)"],
+        ["2024-01-15", "AAPL", "US", 10, 185.50, 1.99],
+        [20, 12, 10, 10, 16, 16])
 
     # Sheet 2 — Dividends
     ws2 = wb.create_sheet("Dividends")
@@ -1280,12 +1286,13 @@ def api_import_data():
                 if not any(c for c in row if c not in (None, "")):
                     continue
                 try:
-                    date_val, ticker, market, units, price = (list(row) + [None]*5)[:5]
+                    date_val, ticker, market, units, price, fees_raw = (list(row) + [None]*6)[:6]
                     date_str = _parse_date(date_val)
                     ticker   = str(ticker).strip().upper()
                     market   = str(market).strip()
                     units_f  = float(units)
                     price_f  = float(price)
+                    fees_f   = float(fees_raw) if fees_raw not in (None, "") else 0.0
                     if not ticker:   raise ValueError("Ticker is required")
                     if market not in VALID_MARKETS:
                         raise ValueError(f"Market '{market}' not recognised — valid: {', '.join(VALID_MARKETS)}")
@@ -1293,7 +1300,7 @@ def api_import_data():
                     if price_f <= 0: raise ValueError("Price must be greater than 0")
                     purchases.append({"id": str(uuid.uuid4()), "ticker": ticker,
                                       "date": date_str, "units": units_f,
-                                      "price_paid": price_f, "market": market})
+                                      "price_paid": price_f, "fees": fees_f, "market": market})
                     added["purchases"] += 1
                 except Exception as e:
                     errors.append(f"Purchases row {row_idx}: {e}")

@@ -263,6 +263,7 @@
         <td>${fmtCcy(h.avg_price, h.currency)}</td>
         <td>${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span> <span title="Price unavailable — Yahoo Finance may be rate-limited or this ticker may be delisted." style="color:#f59e0b;cursor:help;font-size:.85em">&#9888;</span>'}</td>
         <td>${fmtCcy(h.total_invested, h.currency)}</td>
+        <td>${h.total_fees ? fmtCcy(h.total_fees, h.currency) : '<span class="neutral">—</span>'}</td>
         <td>${h.current_value != null ? fmtCcy(h.current_value, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_amount)}">${h.gain_loss_amount != null ? fmtCcy(h.gain_loss_amount, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_pct)}">${fmtPct(h.gain_loss_pct)}</td>
@@ -274,7 +275,7 @@
         <thead><tr>
           ${th('Ticker','ticker')}${th('Market','market')}${th('Units','total_units')}
           ${th('Avg Price','avg_price')}${th('Current Price','current_price')}
-          ${th('Invested','total_invested')}${th('Current Value','current_value_base')}
+          ${th('Invested','total_invested')}${th('Fees','total_fees')}${th('Current Value','current_value_base')}
           ${th('Gain/Loss $','gain_loss_amount')}${th('Gain/Loss %','gain_loss_pct')}
           ${th('Div Yield','current_yield')}
         </tr></thead>
@@ -357,7 +358,8 @@
         <td style="text-align:left"><span class="badge badge-${p.market.toLowerCase()}">${esc(p.market)}</span></td>
         <td>${fmt(p.units, 2)}</td>
         <td>${fmtCcy(p.price_paid, ccy)}</td>
-        <td>${fmtCcy(p.units * p.price_paid, ccy)}</td>
+        <td>${p.fees ? fmtCcy(p.fees, ccy) : '<span class="neutral">—</span>'}</td>
+        <td>${fmtCcy(p.units * p.price_paid + (p.fees || 0), ccy)}</td>
         ${glCell}
       </tr>`;
     }).join('');
@@ -372,8 +374,8 @@
         <thead><tr>
           <th class="chk"><input type="checkbox" id="chk-all"${allChkd ? ' checked' : ''}
             onchange="toggleSelectAll(this.checked)" title="Select all"></th>
-          ${['date','ticker','market','units','price','total','gain'].map((c,i) => {
-            const labels = ['Date','Ticker','Market','Units','Price/Unit','Total Cost','Gain / Loss'];
+          ${['date','ticker','market','units','price','fees','total','gain'].map((c,i) => {
+            const labels = ['Date','Ticker','Market','Units','Price/Unit','Fees','Total Cost','Gain / Loss'];
             const active = logSortCol === c;
             const arrow  = active ? (logSortDir === -1 ? ' ▼' : ' ▲') : '';
             const left   = i < 3 ? ' style="text-align:left"' : '';
@@ -654,6 +656,7 @@
     document.getElementById('f-date').value   = p.date;
     document.getElementById('f-units').value  = p.units;
     document.getElementById('f-price').value  = p.price_paid;
+    document.getElementById('f-fees').value   = p.fees || '';
     document.getElementById('f-market').value = p.market;
     editIdx = id;
     document.getElementById('submit-btn').textContent = 'Save Changes';
@@ -697,7 +700,7 @@
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, date, units, price_paid, market }),
+        body: JSON.stringify({ ticker, date, units, price_paid, fees: parseFloat(document.getElementById('f-fees').value) || 0, market }),
       });
       if (!res.ok) {
         const err = await res.json();

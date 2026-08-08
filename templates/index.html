@@ -224,6 +224,10 @@
           <label for="f-price" id="f-price-label">Price/Unit (S$)</label>
           <input id="f-price" type="number" placeholder="0.00" min="0.01" step="0.01" />
         </div>
+        <div class="fg">
+          <label for="f-fees">Fees</label>
+          <input id="f-fees" type="number" placeholder="0.00" min="0" step="0.01" />
+        </div>
         <div style="display:flex;flex-direction:column;gap:.4rem;justify-content:flex-end">
           <button class="btn btn-primary" id="submit-btn" onclick="submitPurchase()">Add</button>
           <button class="btn btn-ghost" id="cancel-btn" onclick="cancelEdit()" style="display:none;font-size:.78rem;padding:.35rem .6rem">Cancel</button>
