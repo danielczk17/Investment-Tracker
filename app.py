@@ -1114,23 +1114,16 @@ def api_export_all():
 
 @app.route("/api/export/save")
 def api_export_save():
-    """GET — save the export XLSX directly to the user's Desktop (packaged app).
+    """GET — save the export XLSX to the app data folder and open it (packaged app).
     Returns {saved_to, filename} on success or {error} on failure.
     """
-    home = os.path.expanduser("~")
-    candidates = [
-        os.path.join(home, "Desktop"),
-        os.path.join(home, "OneDrive", "Desktop"),
-        os.path.join(home, "Documents"),
-        home,
-    ]
-    desktop = next((p for p in candidates if os.path.isdir(p)), home)
-
     try:
         buf, filename = _build_export_buf()
-        save_path = os.path.join(desktop, filename)
+        save_path = os.path.join(DATA_DIR, filename)
         with open(save_path, "wb") as f:
             f.write(buf.read())
+        # Open the file directly in Excel (or default .xlsx handler)
+        os.startfile(save_path)
         return jsonify({"saved_to": save_path, "filename": filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

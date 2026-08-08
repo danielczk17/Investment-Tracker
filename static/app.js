@@ -1785,7 +1785,7 @@
         if (!res.ok) throw new Error('Server error ' + res.status);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        showToast('Saved to Desktop: ' + data.filename, 5000);
+        showToast('Export saved — opening ' + data.filename, 4000);
       } else {
         const res  = await fetch('/api/export');
         if (!res.ok) throw new Error('Server error ' + res.status);
