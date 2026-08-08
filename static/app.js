@@ -1468,7 +1468,7 @@
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    ['dashboard', 'transactions', 'settings'].forEach(t => {
+    ['dashboard', 'transactions', 'settings', 'data'].forEach(t => {
       document.getElementById('tab-' + t).style.display = tab === t ? '' : 'none';
     });
     document.querySelectorAll('.tab-btn').forEach(b =>

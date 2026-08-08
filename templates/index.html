@@ -19,9 +19,13 @@
     <div class="menu-wrap">
       <button class="menu-btn" onclick="toggleMenu(event)">Menu &#9660;</button>
       <div class="menu-dropdown" id="app-menu">
+        <button class="menu-item" onclick="closeMenu();switchTab('data')">
+          <span class="menu-item-icon">&#128196;</span> Data
+        </button>
         <button class="menu-item" onclick="closeMenu();switchTab('settings')">
           <span class="menu-item-icon">&#9881;</span> Settings
         </button>
+        <div class="menu-divider"></div>
         <button class="menu-item" onclick="closeMenu();openFeedback()">
           <span class="menu-item-icon">&#9993;</span> Feedback
         </button>
@@ -389,31 +393,6 @@
           <span id="settings-status" style="font-size:.82rem;color:#16a34a;display:none">Saved.</span>
         </div>
 
-        <!-- Data Management -->
-        <div style="margin-top:2rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
-          <div style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:.75rem">Data Management</div>
-          <div style="display:flex;flex-direction:column;gap:.75rem">
-            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-              <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#334155;font-size:.82rem;min-width:180px;text-align:left" onclick="downloadImportTemplate()">
-                &#128462; Download Import Template
-              </button>
-              <span style="font-size:.78rem;color:#94a3b8">Get the Excel template to fill in your transactions.</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-              <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#334155;font-size:.82rem;min-width:180px;text-align:left" onclick="document.getElementById('import-file-input').click()">
-                &#11014; Import from Excel
-              </button>
-              <span style="font-size:.78rem;color:#94a3b8">Import purchases, dividends and sells from a filled template.</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-              <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#334155;font-size:.82rem;min-width:180px;text-align:left" onclick="doExport()">
-                &#11015; Export Data
-              </button>
-              <span style="font-size:.78rem;color:#94a3b8">Export all your data to Excel for backup or analysis.</span>
-            </div>
-          </div>
-        </div>
-
         <!-- Danger zone -->
         <div style="margin-top:2rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
           <div style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:.75rem">Maintenance</div>
@@ -427,6 +406,43 @@
       </div>
     </div>
   </div><!-- end #tab-settings -->
+
+  <!-- ── Data Tab ── -->
+  <div id="tab-data" style="display:none">
+    <div class="card" style="max-width:680px">
+      <div class="card-header"><span class="card-title">Data Management</span></div>
+      <div style="display:flex;flex-direction:column;gap:1.25rem;padding:.25rem 0">
+
+        <div style="display:flex;align-items:flex-start;gap:1.25rem;padding:1rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#f8fafc">
+          <span style="font-size:1.5rem;line-height:1">&#128462;</span>
+          <div style="flex:1">
+            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">Download Import Template</div>
+            <div style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Get a blank Excel template with the correct columns for Purchases, Dividends and Sells. Fill it in, then import it below.</div>
+            <button class="btn btn-primary" onclick="downloadImportTemplate()">Download Template</button>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:flex-start;gap:1.25rem;padding:1rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#f8fafc">
+          <span style="font-size:1.5rem;line-height:1">&#11014;</span>
+          <div style="flex:1">
+            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">Import from Excel</div>
+            <div style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Upload a filled template to add purchases, dividends and sells in bulk. Existing records are not affected.</div>
+            <button class="btn btn-primary" onclick="document.getElementById('import-file-input').click()">Choose File &amp; Import</button>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:flex-start;gap:1.25rem;padding:1rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#f8fafc">
+          <span style="font-size:1.5rem;line-height:1">&#11015;</span>
+          <div style="flex:1">
+            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">Export Data</div>
+            <div style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Export all your holdings, transactions and performance history to an Excel workbook for backup or further analysis.</div>
+            <button class="btn btn-primary" onclick="doExport()">Export to Excel</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- end #tab-data -->
 
 </div>
 
