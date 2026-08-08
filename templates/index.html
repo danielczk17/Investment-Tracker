@@ -19,6 +19,13 @@
     <div class="menu-wrap">
       <button class="menu-btn" onclick="toggleMenu(event)">Menu &#9660;</button>
       <div class="menu-dropdown" id="app-menu">
+        <a href="#" class="menu-item" onclick="closeMenu();downloadImportTemplate();return false;">
+          <span class="menu-item-icon">&#128462;</span> Download Import Template
+        </a>
+        <a href="#" class="menu-item" onclick="closeMenu();document.getElementById('import-file-input').click();return false;">
+          <span class="menu-item-icon">&#11014;</span> Import from Excel
+        </a>
+        <div class="menu-divider"></div>
         <a href="#" class="menu-item" onclick="closeMenu();doExport();return false;">
           <span class="menu-item-icon">&#11015;</span> Export
         </a>
@@ -30,6 +37,7 @@
           <span class="menu-item-icon">&#9993;</span> Feedback
         </button>
       </div>
+      <input type="file" id="import-file-input" accept=".xlsx" style="display:none" onchange="importFromExcel(this)">
     </div>
   </div>
 </header>

@@ -1159,6 +1159,197 @@ def api_export_save():
         return jsonify({"error": str(e)}), 500
 
 
+def _build_import_template_buf() -> io.BytesIO:
+    """Build a blank import template workbook and return it as a BytesIO buffer."""
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    hdr_font    = Font(bold=True, color="FFFFFF")
+    hdr_fill    = PatternFill("solid", fgColor="2563EB")
+    ex_font     = Font(italic=True, color="94A3B8")
+    note_fill   = PatternFill("solid", fgColor="FEF9C3")
+    note_font   = Font(italic=True, color="92400E")
+    center      = Alignment(horizontal="center")
+
+    valid = ", ".join(VALID_MARKETS)
+
+    def _make_sheet(ws, headers, example, col_widths):
+        # Header row
+        for c, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=c, value=h)
+            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
+        # Example row
+        for c, v in enumerate(example, 1):
+            cell = ws.cell(row=2, column=c, value=v)
+            cell.font = ex_font
+        # Note row spanning first column
+        note = ws.cell(row=3, column=1, value=f"Valid markets: {valid}   |   Delete this row and the example row before importing.")
+        note.font = note_font; note.fill = note_fill
+        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=len(headers))
+        # Column widths
+        for c, w in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(c)].width = w
+        ws.row_dimensions[1].height = 18
+
+    # Sheet 1 — Purchases
+    ws1 = wb.active; ws1.title = "Purchases"
+    _make_sheet(ws1,
+        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Units", "Price Per Unit"],
+        ["2024-01-15", "AAPL", "US", 10, 185.50],
+        [20, 12, 10, 10, 16])
+
+    # Sheet 2 — Dividends
+    ws2 = wb.create_sheet("Dividends")
+    _make_sheet(ws2,
+        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Amount"],
+        ["2024-03-20", "AAPL", "US", 23.50],
+        [20, 12, 10, 14])
+
+    # Sheet 3 — Sells
+    ws3 = wb.create_sheet("Sells")
+    _make_sheet(ws3,
+        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Units Sold", "Price Per Unit"],
+        ["2024-06-10", "AAPL", "US", 5, 210.00],
+        [20, 12, 10, 12, 16])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@app.route("/api/import/template")
+def api_import_template():
+    """GET — stream the blank import template to the browser."""
+    buf = _build_import_template_buf()
+    return send_file(buf, download_name="investment_tracker_import_template.xlsx",
+                     as_attachment=True,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/import/template/save")
+def api_import_template_save():
+    """GET — save the import template to DATA_DIR and open it (packaged app)."""
+    try:
+        buf      = _build_import_template_buf()
+        filename = "investment_tracker_import_template.xlsx"
+        path     = os.path.join(DATA_DIR, filename)
+        with open(path, "wb") as f:
+            f.write(buf.read())
+        os.startfile(path)
+        return jsonify({"saved_to": path, "filename": filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/import", methods=["POST"])
+def api_import_data():
+    """POST multipart/form-data with field 'file' (.xlsx) — import purchases, dividends, sells."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".xlsx"):
+        return jsonify({"error": "File must be .xlsx format"}), 400
+
+    try:
+        wb = openpyxl.load_workbook(f, data_only=True)
+    except Exception:
+        return jsonify({"error": "Could not read Excel file — make sure it is a valid .xlsx"}), 400
+
+    def _parse_date(val):
+        if val is None:
+            raise ValueError("Date is required")
+        if hasattr(val, "strftime"):          # Excel datetime object
+            return val.strftime("%Y-%m-%d")
+        s = str(val).strip()
+        datetime.strptime(s, "%Y-%m-%d")     # raises ValueError if invalid
+        return s
+
+    added  = {"purchases": 0, "dividends": 0, "sells": 0}
+    errors = []
+
+    with _write_lock:
+        purchases = load_portfolio()
+        dividends = load_dividends()
+        sells     = load_sells()
+
+        # ── Purchases ──────────────────────────────────────────────────────
+        if "Purchases" in wb.sheetnames:
+            for row_idx, row in enumerate(wb["Purchases"].iter_rows(min_row=2, values_only=True), start=2):
+                if not any(c for c in row if c not in (None, "")):
+                    continue
+                try:
+                    date_val, ticker, market, units, price = (list(row) + [None]*5)[:5]
+                    date_str = _parse_date(date_val)
+                    ticker   = str(ticker).strip().upper()
+                    market   = str(market).strip()
+                    units_f  = float(units)
+                    price_f  = float(price)
+                    if not ticker:   raise ValueError("Ticker is required")
+                    if market not in VALID_MARKETS:
+                        raise ValueError(f"Market '{market}' not recognised — valid: {', '.join(VALID_MARKETS)}")
+                    if units_f <= 0: raise ValueError("Units must be greater than 0")
+                    if price_f <= 0: raise ValueError("Price must be greater than 0")
+                    purchases.append({"id": str(uuid.uuid4()), "ticker": ticker,
+                                      "date": date_str, "units": units_f,
+                                      "price_paid": price_f, "market": market})
+                    added["purchases"] += 1
+                except Exception as e:
+                    errors.append(f"Purchases row {row_idx}: {e}")
+
+        # ── Dividends ──────────────────────────────────────────────────────
+        if "Dividends" in wb.sheetnames:
+            for row_idx, row in enumerate(wb["Dividends"].iter_rows(min_row=2, values_only=True), start=2):
+                if not any(c for c in row if c not in (None, "")):
+                    continue
+                try:
+                    date_val, ticker, market, amount = (list(row) + [None]*4)[:4]
+                    date_str = _parse_date(date_val)
+                    ticker   = str(ticker).strip().upper()
+                    market   = str(market).strip()
+                    amount_f = float(amount)
+                    if not ticker:   raise ValueError("Ticker is required")
+                    if market not in VALID_MARKETS:
+                        raise ValueError(f"Market '{market}' not recognised — valid: {', '.join(VALID_MARKETS)}")
+                    if amount_f <= 0: raise ValueError("Amount must be greater than 0")
+                    dividends.append({"id": str(uuid.uuid4()), "ticker": ticker,
+                                      "date": date_str, "amount": amount_f, "market": market})
+                    added["dividends"] += 1
+                except Exception as e:
+                    errors.append(f"Dividends row {row_idx}: {e}")
+
+        # ── Sells ──────────────────────────────────────────────────────────
+        if "Sells" in wb.sheetnames:
+            for row_idx, row in enumerate(wb["Sells"].iter_rows(min_row=2, values_only=True), start=2):
+                if not any(c for c in row if c not in (None, "")):
+                    continue
+                try:
+                    date_val, ticker, market, units, price = (list(row) + [None]*5)[:5]
+                    date_str = _parse_date(date_val)
+                    ticker   = str(ticker).strip().upper()
+                    market   = str(market).strip()
+                    units_f  = float(units)
+                    price_f  = float(price)
+                    if not ticker:   raise ValueError("Ticker is required")
+                    if market not in VALID_MARKETS:
+                        raise ValueError(f"Market '{market}' not recognised — valid: {', '.join(VALID_MARKETS)}")
+                    if units_f <= 0: raise ValueError("Units must be greater than 0")
+                    if price_f <= 0: raise ValueError("Price must be greater than 0")
+                    sells.append({"id": str(uuid.uuid4()), "ticker": ticker,
+                                  "date": date_str, "units": units_f,
+                                  "price_sold": price_f, "market": market})
+                    added["sells"] += 1
+                except Exception as e:
+                    errors.append(f"Sells row {row_idx}: {e}")
+
+        if added["purchases"]: save_portfolio(purchases)
+        if added["dividends"]: save_dividends(dividends)
+        if added["sells"]:     save_sells(sells)
+
+    return jsonify({**added, "errors": errors})
+
+
 @app.route("/api/validate-ticker")
 def api_validate_ticker():
     """GET — check whether a ticker/market combo resolves to a real security."""

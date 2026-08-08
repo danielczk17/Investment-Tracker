@@ -1804,6 +1804,58 @@
     }
   }
 
+  async function downloadImportTemplate() {
+    try {
+      if (appSettings && appSettings.is_frozen) {
+        const res  = await fetch('/api/import/template/save');
+        if (!res.ok) throw new Error('Server error ' + res.status);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        showToast('Template saved — opening ' + data.filename, 4000);
+      } else {
+        const res  = await fetch('/api/import/template');
+        if (!res.ok) throw new Error('Server error ' + res.status);
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = 'investment_tracker_import_template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+      }
+    } catch (err) {
+      showToast('Download failed — ' + err.message);
+    }
+  }
+
+  async function importFromExcel(input) {
+    if (!input.files || !input.files[0]) return;
+    const file     = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    input.value = ''; // reset so same file can be re-imported if needed
+    try {
+      showToast('Importing…', 5000);
+      const res  = await fetch('/api/import', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error || 'Import failed.'); return; }
+      const parts = [];
+      if (data.purchases) parts.push(data.purchases + ' purchase' + (data.purchases !== 1 ? 's' : ''));
+      if (data.dividends) parts.push(data.dividends + ' dividend' + (data.dividends !== 1 ? 's' : ''));
+      if (data.sells)     parts.push(data.sells     + ' sell'     + (data.sells     !== 1 ? 's' : ''));
+      if (parts.length === 0 && data.errors.length === 0) {
+        showToast('Nothing imported — file may be empty or already up to date.');
+      } else {
+        showToast('Imported: ' + (parts.join(', ') || 'nothing') + (data.errors.length ? ` (${data.errors.length} row error${data.errors.length !== 1 ? 's' : ''})` : '') + '.', 6000);
+      }
+      if (data.errors.length) console.warn('Import row errors:', data.errors);
+      await Promise.all([fetchPortfolio(), fetchDividends(), fetchSells()]);
+    } catch (err) {
+      showToast('Import failed — ' + err.message);
+    }
+  }
+
   // ── Feedback ──────────────────────────────────────────────────────────────
 
   const FEEDBACK_EMAIL = '';   // add recipient email here when ready
