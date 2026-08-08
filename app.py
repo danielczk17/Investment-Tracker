@@ -37,7 +37,7 @@ APP_VERSION     = "1.0.0"
 # URL of the version.json you host on GitHub.
 # After creating your GitHub repo, replace this with:
 #   https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/version.json
-UPDATE_MANIFEST_URL = ""  # leave blank to disable update checks
+UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/danielczk17/Investment-Tracker/main/version.json"
 # ---------------------------------------------------------------------------
 
 # All currencies that can be chosen as the base currency
