@@ -19,17 +19,6 @@
     <div class="menu-wrap">
       <button class="menu-btn" onclick="toggleMenu(event)">Menu &#9660;</button>
       <div class="menu-dropdown" id="app-menu">
-        <a href="#" class="menu-item" onclick="closeMenu();downloadImportTemplate();return false;">
-          <span class="menu-item-icon">&#128462;</span> Download Import Template
-        </a>
-        <a href="#" class="menu-item" onclick="closeMenu();document.getElementById('import-file-input').click();return false;">
-          <span class="menu-item-icon">&#11014;</span> Import from Excel
-        </a>
-        <div class="menu-divider"></div>
-        <a href="#" class="menu-item" onclick="closeMenu();doExport();return false;">
-          <span class="menu-item-icon">&#11015;</span> Export
-        </a>
-        <div class="menu-divider"></div>
         <button class="menu-item" onclick="closeMenu();switchTab('settings')">
           <span class="menu-item-icon">&#9881;</span> Settings
         </button>
@@ -398,6 +387,31 @@
         <div style="display:flex;gap:.75rem;align-items:center">
           <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
           <span id="settings-status" style="font-size:.82rem;color:#16a34a;display:none">Saved.</span>
+        </div>
+
+        <!-- Data Management -->
+        <div style="margin-top:2rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
+          <div style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:.75rem">Data Management</div>
+          <div style="display:flex;flex-direction:column;gap:.75rem">
+            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+              <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#334155;font-size:.82rem;min-width:180px;text-align:left" onclick="downloadImportTemplate()">
+                &#128462; Download Import Template
+              </button>
+              <span style="font-size:.78rem;color:#94a3b8">Get the Excel template to fill in your transactions.</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+              <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#334155;font-size:.82rem;min-width:180px;text-align:left" onclick="document.getElementById('import-file-input').click()">
+                &#11014; Import from Excel
+              </button>
+              <span style="font-size:.78rem;color:#94a3b8">Import purchases, dividends and sells from a filled template.</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+              <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#334155;font-size:.82rem;min-width:180px;text-align:left" onclick="doExport()">
+                &#11015; Export Data
+              </button>
+              <span style="font-size:.78rem;color:#94a3b8">Export all your data to Excel for backup or analysis.</span>
+            </div>
+          </div>
         </div>
 
         <!-- Danger zone -->
