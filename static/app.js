@@ -808,6 +808,7 @@
     [baseCanvas, crossCanvas].forEach(c => {
       c.width        = W * dpr;
       c.height       = H * dpr;
+      c.style.width  = W + 'px';
       c.style.height = H + 'px';
     });
 
@@ -1778,17 +1779,26 @@
   async function doExport() {
     try {
       showToast('Preparing export…', 4000);
-      const res = await fetch('/api/export');
-      if (!res.ok) throw new Error('Server error ' + res.status);
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      a.href     = url;
-      a.download = `investment_tracker_${date}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+      // Packaged app (PyWebView) cannot trigger browser downloads — save to Desktop instead
+      if (appSettings && appSettings.is_frozen) {
+        const res  = await fetch('/api/export/save');
+        if (!res.ok) throw new Error('Server error ' + res.status);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        showToast('Saved to Desktop: ' + data.filename, 5000);
+      } else {
+        const res  = await fetch('/api/export');
+        if (!res.ok) throw new Error('Server error ' + res.status);
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        a.href     = url;
+        a.download = `investment_tracker_${date}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+      }
     } catch (err) {
       showToast('Export failed — ' + err.message);
     }
@@ -2167,4 +2177,18 @@
     fetchSnapshots();
     setInterval(() => { fetchPortfolio(); fetchSnapshots(); }, 60_000);
     checkForUpdate();
+
+    // Re-render performance chart when its container is resized (e.g. scrollbar appears)
+    if (typeof ResizeObserver !== 'undefined') {
+      const perfWrap = document.getElementById('perf-wrap');
+      if (perfWrap) {
+        let _perfResizeTimer = null;
+        new ResizeObserver(() => {
+          clearTimeout(_perfResizeTimer);
+          _perfResizeTimer = setTimeout(() => {
+            if (snapData.length) renderPerfChart(snapData);
+          }, 80);
+        }).observe(perfWrap);
+      }
+    }
   });

@@ -68,7 +68,9 @@ VALID_MARKETS:   tuple      = tuple(m["name"] for m in _DEFAULT_MARKETS)
 #              data files are next to the .exe (writable).
 # When in development: everything is relative to this script file.
 # ---------------------------------------------------------------------------
-if getattr(sys, 'frozen', False):
+IS_FROZEN = getattr(sys, 'frozen', False)
+
+if IS_FROZEN:
     BASE_DIR     = os.path.dirname(sys.executable)
     TEMPLATE_DIR = os.path.join(sys._MEIPASS, 'templates')
     STATIC_DIR   = os.path.join(sys._MEIPASS, 'static')
@@ -975,12 +977,8 @@ def api_backfill():
     return jsonify({"added": len(new_snapshots), "total": len(existing) + len(new_snapshots)})
 
 
-@app.route("/api/export")
-def api_export_all():
-    """GET — export all data as a multi-sheet Excel workbook (.xlsx).
-
-    Sheets: Purchases, Sells, Dividends, Holdings (live), Performance (snapshots).
-    """
+def _build_export_buf() -> tuple:
+    """Build the export workbook and return (BytesIO, filename)."""
     purchases = load_portfolio()
     sells     = load_sells()
     dividends = load_dividends()
@@ -1098,14 +1096,44 @@ def api_export_all():
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-
     filename = f"investment_tracker_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return buf, filename
+
+
+@app.route("/api/export")
+def api_export_all():
+    """GET — stream the export workbook to the browser."""
+    buf, filename = _build_export_buf()
     return send_file(
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.route("/api/export/save")
+def api_export_save():
+    """GET — save the export XLSX directly to the user's Desktop (packaged app).
+    Returns {saved_to, filename} on success or {error} on failure.
+    """
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, "Desktop"),
+        os.path.join(home, "OneDrive", "Desktop"),
+        os.path.join(home, "Documents"),
+        home,
+    ]
+    desktop = next((p for p in candidates if os.path.isdir(p)), home)
+
+    try:
+        buf, filename = _build_export_buf()
+        save_path = os.path.join(desktop, filename)
+        with open(save_path, "wb") as f:
+            f.write(buf.read())
+        return jsonify({"saved_to": save_path, "filename": filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/validate-ticker")
@@ -1230,6 +1258,7 @@ def api_get_settings():
         **settings,
         "supported_currencies": SUPPORTED_CURRENCIES,
         "currency_symbols":     ALL_CURRENCY_SYMBOLS,
+        "is_frozen":            IS_FROZEN,
     })
 
 
