@@ -722,7 +722,7 @@
   async function deleteSelected() {
     const count = selectedPurchases.size;
     if (count === 0) return;
-    if (!confirm(`Delete ${count} purchase entr${count === 1 ? 'y' : 'ies'}?`)) return;
+    if (!await showConfirm(`Delete ${count} purchase entr${count === 1 ? 'y' : 'ies'}?`, 'Delete')) return;
     const ids = [...selectedPurchases];
     setLoading(true);
     try {
@@ -1441,7 +1441,7 @@
   async function deleteSelectedDividends() {
     const count = selectedDivs.size;
     if (count === 0) return;
-    if (!confirm(`Delete ${count} dividend entr${count === 1 ? 'y' : 'ies'}?`)) return;
+    if (!await showConfirm(`Delete ${count} dividend entr${count === 1 ? 'y' : 'ies'}?`, 'Delete')) return;
     const ids = [...selectedDivs];
     setLoading(true);
     try {
@@ -1728,7 +1728,7 @@
     const ids = [...selectedSells];
     if (!ids.length) return;
     const count = ids.length;
-    if (!confirm(`Delete ${count} sale entr${count === 1 ? 'y' : 'ies'}?`)) return;
+    if (!await showConfirm(`Delete ${count} sale entr${count === 1 ? 'y' : 'ies'}?`, 'Delete')) return;
     try {
       for (const id of ids) {
         const res = await fetch(`/api/sell/${id}`, { method: 'DELETE' });
@@ -1857,6 +1857,25 @@
     } catch (err) {
       showToast('Import failed — ' + err.message);
     }
+  }
+
+  // ── Confirm dialog ────────────────────────────────────────────────────────
+
+  let _confirmResolve = null;
+
+  function showConfirm(msg, okLabel = 'Confirm') {
+    return new Promise(resolve => {
+      _confirmResolve = resolve;
+      document.getElementById('confirm-msg').textContent = msg;
+      document.getElementById('confirm-ok-btn').textContent = okLabel;
+      const overlay = document.getElementById('confirm-overlay');
+      overlay.style.display = 'flex';
+    });
+  }
+
+  function resolveConfirm(result) {
+    document.getElementById('confirm-overlay').style.display = 'none';
+    if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
   }
 
   // ── Feedback ──────────────────────────────────────────────────────────────
@@ -2040,7 +2059,7 @@
   }
 
   async function rebuildPerformanceHistory() {
-    if (!confirm('This will clear all performance history and rebuild it from your purchase records. Continue?')) return;
+    if (!await showConfirm('This will clear all performance history and rebuild it from your purchase records. Continue?', 'Rebuild')) return;
     showToast('Rebuilding performance history…', 8000);
     try {
       const res  = await fetch('/api/snapshots/reset', { method: 'POST' });

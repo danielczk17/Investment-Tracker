@@ -452,6 +452,17 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ── Confirm dialog ── -->
+<div id="confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:.6rem;padding:1.5rem 1.75rem;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <p id="confirm-msg" style="margin:0 0 1.25rem;font-size:.92rem;color:#1e293b;line-height:1.5"></p>
+    <div style="display:flex;gap:.75rem;justify-content:flex-end">
+      <button class="btn" onclick="resolveConfirm(false)" style="background:#f8fafc;border:1px solid #e2e8f0;color:#334155">Cancel</button>
+      <button class="btn" id="confirm-ok-btn" onclick="resolveConfirm(true)" style="background:#ef4444;border:1px solid #ef4444;color:#fff">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 
 <!-- Feedback modal -->
