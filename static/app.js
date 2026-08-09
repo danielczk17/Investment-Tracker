@@ -261,9 +261,9 @@
         <td><span class="badge badge-${h.market.toLowerCase()}">${esc(h.market)}</span></td>
         <td>${fmt(h.total_units, 2)}</td>
         <td>${fmtCcy(h.avg_price, h.currency)}</td>
-        <td>${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span> <span title="Price unavailable — Yahoo Finance may be rate-limited or this ticker may be delisted." style="color:#f59e0b;cursor:help;font-size:.85em">&#9888;</span>'}</td>
-        <td>${fmtCcy(h.total_invested, h.currency)}</td>
         <td>${h.total_fees ? fmtCcy(h.total_fees, h.currency) : '<span class="neutral">—</span>'}</td>
+        <td>${fmtCcy(h.total_invested, h.currency)}</td>
+        <td>${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span> <span title="Price unavailable — Yahoo Finance may be rate-limited or this ticker may be delisted." style="color:#f59e0b;cursor:help;font-size:.85em">&#9888;</span>'}</td>
         <td>${h.current_value != null ? fmtCcy(h.current_value, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_amount)}">${h.gain_loss_amount != null ? fmtCcy(h.gain_loss_amount, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_pct)}">${fmtPct(h.gain_loss_pct)}</td>
@@ -274,8 +274,8 @@
       <table>
         <thead><tr>
           ${th('Ticker','ticker')}${th('Market','market')}${th('Units','total_units')}
-          ${th('Avg Price','avg_price')}${th('Current Price','current_price')}
-          ${th('Invested','total_invested')}${th('Fees','total_fees')}${th('Current Value','current_value_base')}
+          ${th('Avg Price','avg_price')}${th('Fees','total_fees')}
+          ${th('Invested','total_invested')}${th('Current Price','current_price')}${th('Current Value','current_value_base')}
           ${th('Gain/Loss $','gain_loss_amount')}${th('Gain/Loss %','gain_loss_pct')}
           ${th('Div Yield','current_yield')}
         </tr></thead>
@@ -658,6 +658,7 @@
     document.getElementById('f-price').value  = p.price_paid;
     document.getElementById('f-fees').value   = p.fees || '';
     document.getElementById('f-market').value = p.market;
+    updatePurchasePriceLabel();
     editIdx = id;
     document.getElementById('submit-btn').textContent = 'Save Changes';
     document.getElementById('cancel-btn').style.display = '';
@@ -671,6 +672,7 @@
     document.getElementById('f-ticker').value = '';
     document.getElementById('f-units').value  = '';
     document.getElementById('f-price').value  = '';
+    document.getElementById('f-fees').value   = '';
     document.getElementById('f-date').value   = new Date().toISOString().slice(0, 10);
     document.getElementById('submit-btn').textContent  = 'Add';
     document.getElementById('cancel-btn').style.display = 'none';
@@ -1219,7 +1221,7 @@
     const monthly = {};
     dividends.forEach(d => {
       const key    = d.date.slice(0, 7);
-      const sector = sectorMap[d.ticker] || 'Unknown';
+      const sector = sectorMap[d.ticker] || d.sector || 'Unknown';
       if (!monthly[key]) monthly[key] = {};
       monthly[key][sector] = (monthly[key][sector] || 0) + (d.amount_base || 0);
     });
@@ -1476,6 +1478,9 @@
     });
     document.querySelectorAll('.tab-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.tab === tab));
+    // Hide the Dashboard/Transactions tab bar when on Settings or Data pages
+    const tabBar = document.querySelector('.tab-bar');
+    if (tabBar) tabBar.style.display = (tab === 'settings' || tab === 'data') ? 'none' : '';
     if (tab === 'settings' && appSettings) renderSettingsPage();
   }
 
@@ -1495,10 +1500,12 @@
     document.getElementById('s-price-label').textContent = `Price/Unit (${symOf(ccyOf(mkt))})`;
   }
 
-  // Updates the purchase form price label to reflect the selected market's currency.
+  // Updates the purchase form price and fees labels to reflect the selected market's currency.
   function updatePurchasePriceLabel() {
     const mkt = document.getElementById('f-market').value;
-    document.getElementById('f-price-label').textContent = `Price/Unit (${symOf(ccyOf(mkt))})`;
+    const sym = symOf(ccyOf(mkt));
+    document.getElementById('f-price-label').textContent = `Price/Unit (${sym})`;
+    document.getElementById('f-fees-label').textContent  = `Fees (${sym})`;
   }
 
   // Loads sell data from the API, renders the Realized Gains table, and refreshes the summary tile.
@@ -2002,6 +2009,9 @@
 
   function renderSettingsPage() {
     if (!appSettings) return;
+    // Sync dark mode toggle state
+    const toggle = document.getElementById('dark-mode-toggle');
+    if (toggle) toggle.checked = document.body.classList.contains('dark');
     // Base currency dropdown
     const ccySel = document.getElementById('settings-base-ccy');
     const supported = appSettings.supported_currencies || Object.keys(CURR_SYM);
@@ -2059,16 +2069,16 @@
   }
 
   async function rebuildPerformanceHistory() {
-    if (!await showConfirm('This will clear all performance history and rebuild it from your purchase records. Continue?', 'Rebuild')) return;
-    showToast('Rebuilding performance history…', 8000);
+    if (!await showConfirm('This will clear all performance history and update it from your purchase records. Continue?', 'Update')) return;
+    showToast('Updating performance history…', 8000);
     try {
       const res  = await fetch('/api/snapshots/reset', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
       await fetchSnapshots();
-      showToast(`Done — rebuilt ${data.added} monthly snapshot${data.added !== 1 ? 's' : ''}.`, 4000);
+      showToast(`Done — updated ${data.added} monthly snapshot${data.added !== 1 ? 's' : ''}.`, 4000);
     } catch (err) {
-      showToast('Rebuild failed — ' + err.message);
+      showToast('Update failed — ' + err.message);
     }
   }
 
@@ -2141,7 +2151,7 @@
         : '<p class="wl-empty">No gains yet.</p>'}`;
 
     document.getElementById('wl-losers').innerHTML = `
-      <div class="wl-label wl-label-red">▼ Underperformers</div>
+      <div class="wl-label wl-label-red">▼ Top Losses</div>
       ${losers.length
         ? `<table class="wl-table"><tbody>${mkRows(losers)}</tbody></table>`
         : '<p class="wl-empty">All positions in profit!</p>'}`;
@@ -2252,8 +2262,23 @@
     document.getElementById('update-banner').style.display = 'none';
   }
 
+  // ── Theme ─────────────────────────────────────────────────────────────────
+
+  function applyTheme(dark) {
+    document.body.classList.toggle('dark', dark);
+    const toggle = document.getElementById('dark-mode-toggle');
+    if (toggle) toggle.checked = dark;
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  }
+
+  function toggleDarkMode(dark) {
+    applyTheme(dark);
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', async () => {
+    // Apply saved theme before anything renders to avoid flash
+    applyTheme(localStorage.getItem('theme') === 'dark');
     document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
     document.getElementById('d-date').value = new Date().toISOString().slice(0, 10);
     document.getElementById('s-date').value = new Date().toISOString().slice(0, 10);

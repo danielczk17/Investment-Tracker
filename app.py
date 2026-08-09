@@ -1,7 +1,7 @@
 """
 Investment Tracker — Flask backend.
 
-Data is stored in JSON files in %APPDATA%\InvestmentTracker\ (packaged) or
+Data is stored in JSON files in %APPDATA%\\InvestmentTracker\\ (packaged) or
 alongside this script (dev mode):
   portfolio.json        — purchase records
   sells.json            — sell records
@@ -13,50 +13,84 @@ All monetary totals are expressed in BASE_CURRENCY (SGD by default).
 Live prices and FX rates are fetched via yfinance and cached in memory.
 """
 
-import calendar
-import io
-import json
-import os
-import sys
-import time
-import threading
-import uuid
+# Standard library
+import calendar         # used by backfill to calculate month-end dates
+import io               # BytesIO for in-memory Excel buffers
+import json             # reading/writing JSON data files
+import os               # file path operations and environment variables
+import sys              # detecting frozen (PyInstaller) vs dev mode
+import time             # cache timestamp comparisons
+import threading        # background threads and the write-lock
+import uuid             # generating unique IDs for every record
 from datetime import datetime, date as _date, timedelta
+
+# Flask — HTTP server and response helpers
 from flask import Flask, jsonify, request, render_template, send_file
+
+# openpyxl — builds and reads Excel workbooks for export/import
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
+
+# pandas — used only in the backfill route to slice historical price series
 import pandas as pd
+
+# yfinance — fetches live/historical prices, FX rates, and company metadata
 import yfinance as yf
 
 # ---------------------------------------------------------------------------
 # CONFIG — edit these values to match your setup
 # ---------------------------------------------------------------------------
-PRICE_CACHE_TTL = 300     # Seconds to cache live prices (default: 5 minutes)
-PORT            = int(os.environ.get("PORT", 5000))  # overridden by launcher via env var
-APP_VERSION     = "1.0.0"
-# URL of the version.json you host on GitHub.
+# How long live prices and FX rates are served from memory before the next
+# yfinance call. 5 minutes balances freshness with API rate-limit headroom.
+PRICE_CACHE_TTL = 300
+
+# TCP port Flask listens on. The PyInstaller launcher can override this via
+# the PORT environment variable to avoid conflicts with other local services.
+PORT = int(os.environ.get("PORT", 5000))
+
+# Semantic version shown in the UI and compared against the remote manifest
+# to decide whether to show an update banner.
+APP_VERSION = "1.0.0"
+
+# Raw URL of the version.json file hosted on GitHub.
+# When a new release is published, bump APP_VERSION here and push version.json
+# to the repo so existing installs will notice the update automatically.
 # After creating your GitHub repo, replace this with:
 #   https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/version.json
 UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/danielczk17/Investment-Tracker/main/version.json"
 # ---------------------------------------------------------------------------
 
-# All currencies that can be chosen as the base currency
+# ---------------------------------------------------------------------------
+# Currency and market definitions
+# ---------------------------------------------------------------------------
+# Display symbols for every currency the app supports as a base or local currency.
+# Shown in the UI wherever amounts are formatted (e.g. "S$1,234.56").
 ALL_CURRENCY_SYMBOLS: dict[str, str] = {
-    "SGD": "S$",  "USD": "US$", "EUR": "€",   "GBP": "£",
-    "JPY": "¥",   "AUD": "A$",  "CAD": "C$",  "HKD": "HK$",
-    "CHF": "CHF", "NZD": "NZ$",
+    "SGD": "S$",                                               # default — always first
+    "AUD": "A$",  "CAD": "C$",  "CHF": "CHF", "CNY": "CN¥",
+    "EUR": "€",   "GBP": "£",   "HKD": "HK$", "IDR": "Rp",
+    "JPY": "¥",   "MYR": "RM",  "NZD": "NZ$", "THB": "฿",
+    "USD": "US$", "VND": "₫",
 }
 SUPPORTED_CURRENCIES: list[str] = list(ALL_CURRENCY_SYMBOLS.keys())
 
-# Default market definitions — overridden by settings.json at runtime
+# Default markets loaded when settings.json doesn't exist yet.
+# Each market entry defines:
+#   name     — the label shown in the UI and used as the market key throughout the app
+#   currency — the local currency for that exchange (used for gain/loss display and FX conversion)
+#   suffix   — appended to a ticker to form the yfinance symbol (e.g. "ES3" + ".SI" → "ES3.SI")
 _DEFAULT_MARKETS: list[dict] = [
     {"name": "SGX",   "currency": "SGD", "suffix": ".SI"},
     {"name": "US",    "currency": "USD", "suffix": ""},
     {"name": "World", "currency": "USD", "suffix": ".L"},
 ]
 
-# Runtime globals — updated by apply_settings() on startup and on every PUT /api/settings
-BASE_CURRENCY:   str        = "SGD"
+# ---------------------------------------------------------------------------
+# Runtime globals
+# ---------------------------------------------------------------------------
+# These are set at startup by apply_settings() and updated live whenever the
+# user saves new settings, so all routes always see the current configuration.
+BASE_CURRENCY:   str        = "SGD"     # all base-currency totals are in this currency
 CURRENCY_SYMBOL: dict       = ALL_CURRENCY_SYMBOLS
 MARKET_CURRENCY: dict       = {m["name"]: m["currency"] for m in _DEFAULT_MARKETS}
 MARKET_SUFFIX:   dict       = {m["name"]: m.get("suffix", "") for m in _DEFAULT_MARKETS}
@@ -93,18 +127,40 @@ SELLS_FILE      = os.path.join(DATA_DIR, "sells.json")
 OVERRIDES_FILE  = os.path.join(DATA_DIR, "sector_overrides.json")
 SETTINGS_FILE   = os.path.join(DATA_DIR, "settings.json")
 
-_price_cache:     dict = {}  # { yf_symbol:  { 'price':  float|None, 'ts': float } }
-_sector_cache:    dict = {}  # { yf_symbol:  { 'sector': str,        'ts': float } }
-_sector_overrides: dict = {}  # { yf_symbol: str } — user-defined category overrides
-SECTOR_CACHE_TTL = 86400  # 24 hours — sectors rarely change
+# ---------------------------------------------------------------------------
+# In-memory caches
+# ---------------------------------------------------------------------------
+# Prices are cached per yfinance symbol for PRICE_CACHE_TTL seconds.
+# Each entry: { 'price': float|None, 'ts': float (epoch) }
+_price_cache: dict = {}
 
-# Serialises all load→modify→save sequences so rapid double-clicks can't interleave writes.
+# Sector, dividend rate, and company name are fetched together from yf.Ticker().info
+# and cached for SECTOR_CACHE_TTL (24 h) because they change infrequently.
+# Each entry: { 'sector': str, 'div_rate': float|None, 'name': str, 'ts': float }
+_sector_cache: dict = {}
+
+# User-defined overrides for the sector label (e.g. ETF → "Global Equity").
+# Loaded from sector_overrides.json at startup; written back on every PUT /api/sector-override.
+_sector_overrides: dict = {}
+
+SECTOR_CACHE_TTL = 86400  # 24 hours — sector/company info rarely changes
+
+# All file writes go through this lock so that rapid back-to-back API calls
+# (e.g. double-clicking Add) cannot interleave a load and a save.
 _write_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+# All application data lives in JSON files in DATA_DIR.
+# Each file holds a flat list of record dicts.  Every record carries a uuid4 id
+# field so the frontend can reference individual items for edit/delete without
+# relying on list position.
+#
+# The load_* / save_* pairs are deliberately thin: no ORM, no schema validation —
+# just read the whole file in, mutate the list in Python, write the whole file back.
+# The _write_lock ensures these sequences are atomic under concurrent requests.
 
 def _ensure_ids(records: list) -> bool:
     """Stamp a uuid4 id onto any record that lacks one. Returns True if any were added."""
@@ -263,6 +319,15 @@ def record_snapshot(value: float, invested: float) -> None:
 # ---------------------------------------------------------------------------
 # Price & FX fetching
 # ---------------------------------------------------------------------------
+# All live data comes from yfinance.  Prices use a two-step strategy:
+#   1. fast_info.last_price — lightweight, usually < 0.5 s, no info dict overhead.
+#   2. history(period="5d") — fallback for tickers where fast_info is unavailable.
+# FX rates are fetched as ordinary yfinance tickers using the standard "SGDUSD=X" convention.
+#
+# Both price and sector data are held in module-level dicts (_price_cache, _sector_cache)
+# so every request within the TTL window is served from memory with no network call.
+# Caches are cleared on settings save (new BASE_CURRENCY changes all FX calculations)
+# and on the manual "Refresh Prices" action.
 
 def resolve_yf_symbol(ticker: str, market: str) -> str:
     """Return the yfinance-ready symbol for a ticker/market pair."""
@@ -384,7 +449,10 @@ def build_response(purchases: list, sells: list | None = None) -> dict:
     if sells is None:
         sells = []
 
-    # Aggregate per ticker from buys
+    # Average-cost method: for each ticker, accumulate total units bought and
+    # total cost (units × price + fees across all purchases).  avg_price is
+    # derived later as total_cost / total_units, so fees are automatically
+    # folded into the cost basis and gain/loss figures.
     agg: dict = {}
     for p in purchases:
         key = p["ticker"].upper()
@@ -500,11 +568,29 @@ def build_response(purchases: list, sells: list | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+# All JSON routes follow a simple REST convention:
+#   GET  /api/<resource>            — list or retrieve
+#   POST /api/<resource>            — create a new record (returns 201)
+#   PUT  /api/<resource>/<id>       — overwrite a specific record by uuid
+#   DELETE /api/<resource>/<id>     — remove a specific record by uuid
+#
+# Every mutating route wraps its load→modify→save sequence in _write_lock
+# to prevent race conditions from concurrent requests.
+
+# ── UI shell ─────────────────────────────────────────────────────────────────
+# The single HTML page.  The frontend is a vanilla-JS SPA that calls the
+# JSON API routes below for all data.
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
+# ── Portfolio ─────────────────────────────────────────────────────────────────
+# /api/portfolio is the main data feed for the dashboard.  It recalculates
+# everything from the raw JSON files on every call so the UI always shows
+# current prices.  A snapshot of today's value is written to snapshots.json
+# as a side-effect, keeping the performance chart up to date automatically.
 
 _auto_backfill_done = False
 
@@ -540,6 +626,11 @@ def api_portfolio():
     """GET — return full portfolio state (holdings, totals, FX rates)."""
     return jsonify(_portfolio_response())
 
+
+# ── Purchase CRUD ─────────────────────────────────────────────────────────────
+# Purchases are the source of truth for cost basis.  Every buy record stores
+# units, price paid, and fees so the average-cost calculation in build_response()
+# can reproduce the correct cost basis at any point in time.
 
 @app.route("/api/purchase", methods=["POST"])
 def api_add_purchase():
@@ -608,6 +699,11 @@ def api_delete_purchase(record_id):
     return jsonify({"success": True})
 
 
+# ── Sector override ───────────────────────────────────────────────────────────
+# Allows the user to assign a custom category label to a holding (e.g. rename
+# "Technology" to "Tech ETF").  Overrides are stored in sector_overrides.json
+# and checked first in get_sector(), so yfinance is never consulted for them.
+
 @app.route("/api/sector-override", methods=["PUT"])
 def api_set_sector_override():
     """PUT — save a manual sector/category label for a ticker. Body: {ticker, market, sector}.
@@ -629,6 +725,11 @@ def api_set_sector_override():
     return jsonify({"success": True, "symbol": symbol, "sector": sector})
 
 
+# ── Dividend CRUD ─────────────────────────────────────────────────────────────
+# Dividends are recorded manually by the user (yfinance does not provide
+# personalised payout history).  The GET route converts each local-currency
+# amount to BASE_CURRENCY so the frontend can show a running total.
+
 @app.route("/api/dividends")
 def api_get_dividends():
     """GET — return all dividend records with FX-converted base amounts and a running total."""
@@ -642,7 +743,8 @@ def api_get_dividends():
         if amount_base is not None:
             total_base += amount_base
         result.append({**d, "currency": ccy, "amount_base": amount_base,
-                        "company_name": get_company_name(d["ticker"], d["market"])})
+                        "company_name": get_company_name(d["ticker"], d["market"]),
+                        "sector":       get_sector(d["ticker"], d["market"])})
     return jsonify({
         "dividends":       result,
         "total_base":      total_base,
@@ -711,6 +813,12 @@ def api_delete_dividend(record_id):
         save_dividends(dividends)
     return jsonify({"success": True})
 
+
+# ── Sell CRUD ─────────────────────────────────────────────────────────────────
+# Sell records reduce the remaining unit count shown in the holdings table.
+# Realized gain is calculated at read time using the average cost of all buys
+# for that ticker up to the sell date, so editing historical purchases
+# automatically recalculates realized gains without reprocessing.
 
 @app.route("/api/sells")
 def api_get_sells():
@@ -842,6 +950,18 @@ def api_delete_sell(record_id):
         save_sells(sells)
     return jsonify({"success": True})
 
+
+# ── Snapshots and performance history ────────────────────────────────────────
+# snapshots.json stores one entry per calendar month: the portfolio's total
+# value and cost basis on (roughly) the last day of that month.  The chart on
+# the dashboard plots this series to show performance over time.
+#
+# record_snapshot() upserts today's value on every /api/portfolio call so the
+# current month is always current without a separate trigger.
+#
+# /api/backfill fills in any missing months by replaying historical close
+# prices from yfinance — useful when first setting up the app or after adding
+# old purchases.
 
 @app.route("/api/snapshots")
 def api_get_snapshots():
@@ -1011,6 +1131,15 @@ def api_backfill():
     return jsonify({"added": len(new_snapshots), "total": len(existing) + len(new_snapshots)})
 
 
+# ── Export ────────────────────────────────────────────────────────────────────
+# Produces a single .xlsx workbook with five sheets:
+#   Purchases, Sells, Dividends, Holdings (live snapshot), Performance history.
+#
+# In dev mode the file is streamed directly to the browser via send_file().
+# In packaged (frozen) mode PyWebView blocks the a.download click event, so
+# /api/export/save writes the file to DATA_DIR and opens it with os.startfile()
+# instead (the user's default .xlsx handler, typically Excel).
+
 def _build_export_buf() -> tuple:
     """Build the export workbook and return (BytesIO, filename)."""
     purchases = load_portfolio()
@@ -1164,6 +1293,19 @@ def api_export_save():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# ── Import ────────────────────────────────────────────────────────────────────
+# Users can bulk-load historical data by filling in the import template and
+# uploading it via POST /api/import.  The template has three sheets matching
+# the app's data model (Purchases, Dividends, Sells).
+#
+# Row 1 is the header, row 2 is a colour-coded example, row 3 is a note
+# reminding the user to delete both rows before importing.  The parser
+# skips any row that is entirely blank, so partial sheets are fine.
+#
+# Validation errors (bad date format, unknown market, zero units) are collected
+# per row and returned in the JSON response alongside the count of rows added,
+# so the user can see exactly which rows were rejected.
 
 def _build_import_template_buf() -> io.BytesIO:
     """Build a blank import template workbook and return it as a BytesIO buffer."""
@@ -1357,6 +1499,10 @@ def api_import_data():
     return jsonify({**added, "errors": errors})
 
 
+# ── Ticker utilities ──────────────────────────────────────────────────────────
+# Helper endpoints called by the frontend while the user is filling in the
+# purchase/sell form to give real-time feedback before the form is submitted.
+
 @app.route("/api/validate-ticker")
 def api_validate_ticker():
     """GET — check whether a ticker/market combo resolves to a real security."""
@@ -1377,6 +1523,11 @@ def api_validate_ticker():
     name = _sector_cache.get(symbol, {}).get("name", "")
     return jsonify({"valid": True, "name": name})
 
+
+# ── Benchmark ────────────────────────────────────────────────────────────────
+# Returns daily close prices for a benchmark ticker (e.g. SPY) from the date
+# of the user's first snapshot so the performance chart can overlay them.
+# The benchmark ticker is configurable in Settings; defaults to SPY.
 
 @app.route("/api/benchmark")
 def api_benchmark():
@@ -1472,6 +1623,16 @@ def api_check_update():
     return jsonify(_update_cache)
 
 
+# ── Settings ─────────────────────────────────────────────────────────────────
+# Settings control which currency all totals are expressed in, which markets
+# (exchanges) are available when adding a trade, and which benchmark ticker
+# appears on the performance chart.
+#
+# On save (PUT), apply_settings() updates the runtime globals immediately so
+# subsequent /api/portfolio calls reflect the new base currency without a restart.
+# Both caches are cleared because FX rates and price-to-base conversions are
+# now invalid.
+
 @app.route("/api/settings", methods=["GET"])
 def api_get_settings():
     """GET — return current settings plus supported-currency metadata."""
@@ -1511,6 +1672,20 @@ def api_save_settings():
     _sector_cache.clear()
     return jsonify({"success": True})
 
+
+# ---------------------------------------------------------------------------
+# Application launcher
+# ---------------------------------------------------------------------------
+# Two launch modes depending on how the script is executed:
+#
+#   Packaged (.exe):
+#     Flask runs on a background thread; a PyWebView window is opened pointing
+#     at localhost.  The app polls until Flask responds before creating the window
+#     to avoid a blank-screen race condition.
+#
+#   Development (python app.py):
+#     Flask runs in the foreground with debug=True so code changes hot-reload
+#     and full tracebacks appear in the browser.
 
 if __name__ == "__main__":
     if getattr(sys, 'frozen', False):

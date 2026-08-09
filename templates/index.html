@@ -17,7 +17,7 @@
       Refresh Prices
     </button>
     <div class="menu-wrap">
-      <button class="menu-btn" onclick="toggleMenu(event)">Menu &#9660;</button>
+      <button class="menu-btn" onclick="toggleMenu(event)">Menu <span style="font-size:.6em;vertical-align:middle">&#9660;</span></button>
       <div class="menu-dropdown" id="app-menu">
         <button class="menu-item" onclick="closeMenu();switchTab('data')">
           <span class="menu-item-icon">&#128196;</span> Data
@@ -170,10 +170,10 @@
     <div class="card-header">
       <span class="card-title">Holdings</span>
       <div style="margin-left:auto;display:flex;align-items:center;gap:.5rem">
-        <span style="font-size:.8rem;font-weight:600;color:#64748b">Search:</span>
+        <span style="font-size:.8rem;font-weight:600;color:var(--text-muted)">Search:</span>
         <input id="holdings-search" type="text" placeholder="Ticker or name…"
                oninput="holdingsSearch=this.value;holdingsPage=1;renderHoldings(lastHoldings)"
-               style="padding:.32rem .65rem;border:1px solid #e2e8f0;border-radius:.4rem;font-size:.8rem;width:175px;outline:none" />
+               style="padding:.32rem .65rem;border:1px solid var(--border);border-radius:.4rem;font-size:.8rem;width:175px;outline:none;background:var(--input-bg);color:var(--text)" />
       </div>
     </div>
     <div class="table-wrap" id="holdings-wrap">
@@ -225,7 +225,7 @@
           <input id="f-price" type="number" placeholder="0.00" min="0.01" step="0.01" />
         </div>
         <div class="fg">
-          <label for="f-fees">Fees</label>
+          <label for="f-fees" id="f-fees-label">Fees</label>
           <input id="f-fees" type="number" placeholder="0.00" min="0" step="0.01" />
         </div>
         <div style="display:flex;flex-direction:column;gap:.4rem;justify-content:flex-end">
@@ -349,6 +349,19 @@
       <div class="card-header"><span class="card-title">Settings</span></div>
       <div style="padding:1.25rem 1.5rem;display:flex;flex-direction:column;gap:1.5rem">
 
+        <!-- Appearance -->
+        <div>
+          <p style="font-size:.8rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">Appearance</p>
+          <div class="theme-toggle-wrap">
+            <span class="theme-toggle-label">Dark Mode</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dark-mode-toggle" onchange="toggleDarkMode(this.checked)">
+              <span class="toggle-track"></span>
+              <span class="toggle-thumb"></span>
+            </label>
+          </div>
+        </div>
+
         <!-- Base Currency -->
         <div>
           <p style="font-size:.8rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">Base Currency</p>
@@ -383,11 +396,11 @@
               style="padding:.5rem .75rem;border:1px solid #e2e8f0;border-radius:.4rem;font-size:.88rem;background:#fff;color:#1e293b;width:130px;text-transform:uppercase"
               oninput="this.value=this.value.toUpperCase()">
             <span style="font-size:.78rem;color:#94a3b8">Presets:</span>
-            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='SPY'">SPY</button>
-            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='QQQ'">QQQ</button>
-            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='VTI'">VTI</button>
-            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='IWDA.L'">IWDA.L</button>
-            <button class="btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='ES3.SI'">ES3.SI</button>
+            <button class="btn settings-preset-btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='SPY'">SPY</button>
+            <button class="btn settings-preset-btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='QQQ'">QQQ</button>
+            <button class="btn settings-preset-btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='VTI'">VTI</button>
+            <button class="btn settings-preset-btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='IWDA.L'">IWDA.L</button>
+            <button class="btn settings-preset-btn" style="font-size:.78rem;padding:.3rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;color:#334155" onclick="document.getElementById('settings-benchmark').value='ES3.SI'">ES3.SI</button>
           </div>
         </div>
 
@@ -398,10 +411,10 @@
         </div>
 
         <!-- Danger zone -->
-        <div style="margin-top:2rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
+        <div class="settings-section-divider" style="margin-top:2rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
           <div style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:.75rem">Maintenance</div>
           <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-            <button class="btn" style="background:#fff;border:1px solid #e2e8f0;color:#ef4444;font-size:.82rem" onclick="rebuildPerformanceHistory()">
+            <button class="btn settings-maintenance-btn" style="background:#fff;border:1px solid #e2e8f0;color:#ef4444;font-size:.82rem" onclick="rebuildPerformanceHistory()">
               Update Performance History
             </button>
             <span style="font-size:.78rem;color:#94a3b8">Recalculates all monthly snapshots from your purchase records. Run this after importing data or editing transactions.</span>
@@ -417,29 +430,29 @@
       <div class="card-header"><span class="card-title">Data Management</span></div>
       <div style="display:flex;flex-direction:column;gap:1.25rem;padding:.25rem 0">
 
-        <div style="display:flex;align-items:flex-start;gap:1.25rem;padding:1rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#f8fafc">
+        <div class="data-item">
           <span style="font-size:1.5rem;line-height:1">&#128462;</span>
           <div style="flex:1">
-            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">Download Import Template</div>
-            <div style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Get a blank Excel template with the correct columns for Purchases, Dividends and Sells. Fill it in, then import it below.</div>
+            <div class="data-item-title">Download Import Template</div>
+            <div class="data-item-desc">Get a blank Excel template with the correct columns for Purchases, Dividends and Sells. Fill it in, then import it below.</div>
             <button class="btn btn-primary" onclick="downloadImportTemplate()">Download Template</button>
           </div>
         </div>
 
-        <div style="display:flex;align-items:flex-start;gap:1.25rem;padding:1rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#f8fafc">
+        <div class="data-item">
           <span style="font-size:1.5rem;line-height:1">&#11014;</span>
           <div style="flex:1">
-            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">Import from Excel</div>
-            <div style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Upload a filled template to add purchases, dividends and sells in bulk. Existing records are not affected.</div>
+            <div class="data-item-title">Import from Excel</div>
+            <div class="data-item-desc">Upload a filled template to add purchases, dividends and sells in bulk. Existing records are not affected.</div>
             <button class="btn btn-primary" onclick="document.getElementById('import-file-input').click()">Choose File &amp; Import</button>
           </div>
         </div>
 
-        <div style="display:flex;align-items:flex-start;gap:1.25rem;padding:1rem;border:1px solid #e2e8f0;border-radius:.5rem;background:#f8fafc">
+        <div class="data-item">
           <span style="font-size:1.5rem;line-height:1">&#11015;</span>
           <div style="flex:1">
-            <div style="font-weight:600;color:#1e293b;margin-bottom:.25rem">Export Data</div>
-            <div style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Export all your holdings, transactions and performance history to an Excel workbook for backup or further analysis.</div>
+            <div class="data-item-title">Export Data</div>
+            <div class="data-item-desc">Export all your holdings, transactions and performance history to an Excel workbook for backup or further analysis.</div>
             <button class="btn btn-primary" onclick="doExport()">Export to Excel</button>
           </div>
         </div>
