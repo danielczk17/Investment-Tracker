@@ -300,17 +300,16 @@ apply_settings(load_settings())
 
 
 def record_snapshot(value: float, invested: float) -> None:
-    """Upsert today's portfolio snapshot into the monthly history.
+    """Upsert today's portfolio snapshot into the daily history.
 
-    If an entry already exists for the current calendar month it is replaced
-    with the latest values, so each month keeps only one (the most recent) entry.
+    If an entry already exists for today it is replaced with the latest values,
+    so each calendar day keeps only one (the most recent) entry.
     """
     today = datetime.now().strftime("%Y-%m-%d")
-    this_month = today[:7]  # "YYYY-MM"
     snapshots = load_snapshots()
     entry = {"date": today, "value": round(value, 2), "invested": round(invested, 2)}
-    if snapshots and snapshots[-1]["date"][:7] == this_month:
-        snapshots[-1] = entry   # update this month's entry with latest prices
+    if snapshots and snapshots[-1]["date"] == today:
+        snapshots[-1] = entry   # update today's entry with latest prices
     else:
         snapshots.append(entry)
     save_snapshots(snapshots)
@@ -1050,79 +1049,94 @@ def api_backfill():
         except Exception:
             hist_fx[_ccy] = None
 
-    existing       = load_snapshots()
+    existing        = load_snapshots()
+    existing_dates  = {s["date"] for s in existing}
     existing_months = {s["date"][:7] for s in existing}
 
-    new_snapshots: list[dict] = []
+    # Last 30 days use daily granularity; older history uses monthly end-of-month.
+    DAILY_WINDOW = timedelta(days=30)
+    daily_cutoff = today - DAILY_WINDOW
+
+    # Build the list of target dates to generate snapshots for.
+    target_dates: list[_date] = []
     cur_year, cur_month = start_date.year, start_date.month
-
     while (cur_year, cur_month) <= (today.year, today.month):
-        month_key = f"{cur_year:04d}-{cur_month:02d}"
+        month_start = _date(cur_year, cur_month, 1)
+        month_end   = (_date(cur_year, cur_month, calendar.monthrange(cur_year, cur_month)[1])
+                       if not (cur_year == today.year and cur_month == today.month)
+                       else today)
 
-        if month_key not in existing_months:
-            # Use last calendar day of the month (or today for the current month)
-            if cur_year == today.year and cur_month == today.month:
-                snap_date = today
-            else:
-                snap_date = _date(cur_year, cur_month,
-                                  calendar.monthrange(cur_year, cur_month)[1])
-            snap_str = snap_date.strftime("%Y-%m-%d")
+        if month_start > daily_cutoff:
+            # Daily granularity for recent months
+            d = max(month_start, daily_cutoff + timedelta(days=1))
+            while d <= month_end:
+                if d.strftime("%Y-%m-%d") not in existing_dates:
+                    target_dates.append(d)
+                d += timedelta(days=1)
+        else:
+            # Monthly granularity for older history
+            month_key = f"{cur_year:04d}-{cur_month:02d}"
+            if month_key not in existing_months:
+                target_dates.append(month_end)
 
-            # Build portfolio state at snap_date using average-cost method
-            held: dict[str, dict] = {}
-            for p in purchases_sorted:
-                if p["date"] > snap_str:
-                    break
-                key = p["ticker"].upper()
-                if key not in held:
-                    held[key] = {"units_bought": 0.0, "cost": 0.0, "market": p["market"]}
-                held[key]["units_bought"] += float(p["units"])
-                held[key]["cost"]         += float(p["units"]) * float(p["price_paid"])
-
-            # Subtract sells
-            for s in sells:
-                if s["date"] <= snap_str:
-                    key = s["ticker"].upper()
-                    if key in held and held[key]["units_bought"] > 0:
-                        avg  = held[key]["cost"] / held[key]["units_bought"]
-                        sold = float(s["units"])
-                        held[key]["units_bought"] -= sold
-                        held[key]["cost"]         -= avg * sold
-
-            total_value    = 0.0
-            total_invested = 0.0
-            skip           = False
-
-            for ticker, h in held.items():
-                if h["units_bought"] <= 1e-9:
-                    continue
-                price = _get_hist_price(hist_prices.get(ticker), snap_date)
-                if price is None:
-                    skip = True
-                    break
-
-                ccy = MARKET_CURRENCY.get(h["market"], "USD")
-                if ccy == BASE_CURRENCY:
-                    fx = 1.0
-                else:
-                    fx = _get_hist_price(hist_fx.get(ccy), snap_date) \
-                         or get_fx_rate(ccy, BASE_CURRENCY) or 1.0
-
-                total_value    += price * h["units_bought"] * fx
-                total_invested += h["cost"] * fx
-
-            if not skip and total_value > 0:
-                new_snapshots.append({
-                    "date":     snap_str,
-                    "value":    round(total_value, 2),
-                    "invested": round(total_invested, 2),
-                })
-
-        # Advance to next month
         cur_month += 1
         if cur_month > 12:
             cur_month = 1
             cur_year += 1
+
+    new_snapshots: list[dict] = []
+    for snap_date in target_dates:
+        snap_str = snap_date.strftime("%Y-%m-%d")
+
+        # Build portfolio state at snap_date using average-cost method
+        held: dict[str, dict] = {}
+        for p in purchases_sorted:
+            if p["date"] > snap_str:
+                break
+            key = p["ticker"].upper()
+            if key not in held:
+                held[key] = {"units_bought": 0.0, "cost": 0.0, "market": p["market"]}
+            held[key]["units_bought"] += float(p["units"])
+            held[key]["cost"]         += float(p["units"]) * float(p["price_paid"])
+
+        # Subtract sells
+        for s in sells:
+            if s["date"] <= snap_str:
+                key = s["ticker"].upper()
+                if key in held and held[key]["units_bought"] > 0:
+                    avg  = held[key]["cost"] / held[key]["units_bought"]
+                    sold = float(s["units"])
+                    held[key]["units_bought"] -= sold
+                    held[key]["cost"]         -= avg * sold
+
+        total_value    = 0.0
+        total_invested = 0.0
+        skip           = False
+
+        for ticker, h in held.items():
+            if h["units_bought"] <= 1e-9:
+                continue
+            price = _get_hist_price(hist_prices.get(ticker), snap_date)
+            if price is None:
+                skip = True
+                break
+
+            ccy = MARKET_CURRENCY.get(h["market"], "USD")
+            if ccy == BASE_CURRENCY:
+                fx = 1.0
+            else:
+                fx = _get_hist_price(hist_fx.get(ccy), snap_date) \
+                     or get_fx_rate(ccy, BASE_CURRENCY) or 1.0
+
+            total_value    += price * h["units_bought"] * fx
+            total_invested += h["cost"] * fx
+
+        if not skip and total_value > 0:
+            new_snapshots.append({
+                "date":     snap_str,
+                "value":    round(total_value, 2),
+                "invested": round(total_invested, 2),
+            })
 
     if new_snapshots:
         all_snaps = sorted(existing + new_snapshots, key=lambda s: s["date"])

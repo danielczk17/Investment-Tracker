@@ -1,4 +1,7 @@
   // ── State ──────────────────────────────────────────────────────────────────
+  // Tracks ticker validation per form prefix: null = unchecked, true = valid, false = invalid
+  const _tickerValid = { f: null, s: null, d: null };
+
   let portfolioData     = null;
   let logOpen           = true;
   let appSettings       = null;   // loaded from /api/settings on boot
@@ -660,6 +663,7 @@
     document.getElementById('f-market').value = p.market;
     updatePurchasePriceLabel();
     editIdx = id;
+    _tickerValid['f'] = true;
     document.getElementById('submit-btn').textContent = 'Save Changes';
     document.getElementById('cancel-btn').style.display = '';
     document.getElementById('purchase-card').classList.add('editing');
@@ -669,6 +673,7 @@
   // Resets the purchase form back to add mode and clears the editing highlight.
   function cancelEdit() {
     editIdx = null;
+    _tickerValid['f'] = null;
     document.getElementById('f-ticker').value = '';
     document.getElementById('f-units').value  = '';
     document.getElementById('f-price').value  = '';
@@ -688,10 +693,12 @@
     const price_paid = parseFloat(document.getElementById('f-price').value);
     const market     = document.getElementById('f-market').value;
 
-    if (!ticker)                   { showToast('Enter a ticker symbol.'); return; }
-    if (!date)                     { showToast('Pick a date.'); return; }
-    if (!units      || units  <= 0){ showToast('Units must be > 0.'); return; }
-    if (!price_paid || price_paid <= 0){ showToast('Price must be > 0.'); return; }
+    if (!ticker)                        { showToast('Enter a ticker symbol.'); return; }
+    if (_tickerValid['f'] === false)    { showToast(`"${ticker}" was not found on ${document.getElementById('f-market').value} — check the ticker and market.`); return; }
+    if (_tickerValid['f'] === null)     { showToast('Ticker is still being validated — please wait a moment.'); return; }
+    if (!date)                          { showToast('Pick a date.'); return; }
+    if (!units      || units  <= 0)     { showToast('Units must be > 0.'); return; }
+    if (!price_paid || price_paid <= 0) { showToast('Price must be > 0.'); return; }
 
     const isEdit = editIdx !== null;
     const url    = isEdit ? `/api/purchase/${editIdx}` : '/api/purchase';
@@ -759,7 +766,7 @@
   // Filters a snapshots array to only those within the selected time window.
   function filterSnapshots(snaps, period) {
     if (period === 'ALL' || !snaps.length) return snaps;
-    const days = { '1M': 30, '3M': 90, '6M': 180, '1Y': 365 }[period] || 9999;
+    const days = { '7D': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365 }[period] || 9999;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     return snaps.filter(s => new Date(s.date) >= cutoff);
@@ -1374,6 +1381,7 @@
   // Loads a dividend record into the form fields for editing.
   function populateDivForm(div, origIdx) {
     divEditIdx = origIdx;
+    _tickerValid['d'] = true;
     document.getElementById('d-ticker').value = div.ticker;
     document.getElementById('d-market').value = div.market;
     document.getElementById('d-date').value   = div.date;
@@ -1387,6 +1395,7 @@
   // Resets the dividend form to its default empty state.
   function resetDivForm() {
     divEditIdx = null;
+    _tickerValid['d'] = null;
     document.getElementById('d-ticker').value = '';
     document.getElementById('d-amount').value = '';
     document.getElementById('d-date').value   = new Date().toISOString().slice(0, 10);
@@ -1412,9 +1421,11 @@
     const date   = document.getElementById('d-date').value;
     const amount = parseFloat(document.getElementById('d-amount').value);
 
-    if (!ticker)               { showToast('Enter a ticker symbol.'); return; }
-    if (!date)                 { showToast('Pick a date.'); return; }
-    if (!amount || amount <= 0){ showToast('Amount must be > 0.'); return; }
+    if (!ticker)                      { showToast('Enter a ticker symbol.'); return; }
+    if (_tickerValid['d'] === false)  { showToast(`"${ticker}" was not found on ${document.getElementById('d-market').value} — check the ticker and market.`); return; }
+    if (_tickerValid['d'] === null)   { showToast('Ticker is still being validated — please wait a moment.'); return; }
+    if (!date)                        { showToast('Pick a date.'); return; }
+    if (!amount || amount <= 0)       { showToast('Amount must be > 0.'); return; }
 
     const isEdit = divEditIdx !== null;
     const url    = isEdit ? `/api/dividend/${divEditIdx}` : '/api/dividend';
@@ -1665,6 +1676,7 @@
   // Loads a sell record into the form fields for editing.
   function populateSellForm(sell, origIdx) {
     sellEditIdx = origIdx;
+    _tickerValid['s'] = true;
     document.getElementById('s-ticker').value = sell.ticker;
     document.getElementById('s-market').value = sell.market;
     document.getElementById('s-date').value   = sell.date;
@@ -1679,6 +1691,7 @@
   // Resets the sell form to its default empty state.
   function resetSellForm() {
     sellEditIdx = null;
+    _tickerValid['s'] = null;
     document.getElementById('s-ticker').value = '';
     document.getElementById('s-units').value  = '';
     document.getElementById('s-price').value  = '';
@@ -1705,7 +1718,10 @@
     const date   = document.getElementById('s-date').value;
     const units  = parseFloat(document.getElementById('s-units').value);
     const price  = parseFloat(document.getElementById('s-price').value);
-    if (!ticker || !date || isNaN(units) || isNaN(price) || units <= 0 || price <= 0) {
+    if (!ticker)                      { showToast('Enter a ticker symbol.'); return; }
+    if (_tickerValid['s'] === false)  { showToast(`"${ticker}" was not found on ${document.getElementById('s-market').value} — check the ticker and market.`); return; }
+    if (_tickerValid['s'] === null)   { showToast('Ticker is still being validated — please wait a moment.'); return; }
+    if (!date || isNaN(units) || isNaN(price) || units <= 0 || price <= 0) {
       showToast('Please fill in all sell fields.');
       return;
     }
@@ -1922,6 +1938,7 @@
 
   function scheduleTickerValidation(prefix) {
     clearTimeout(_tickerTimers[prefix]);
+    _tickerValid[prefix] = null;
     const ticker = document.getElementById(prefix + '-ticker').value.trim();
     const hint   = document.getElementById(prefix + '-ticker-hint');
     if (!ticker) { hint.innerHTML = ''; return; }
@@ -1953,13 +1970,16 @@
       const data = await res.json();
       let validMsg;
       if (data.valid) {
+        _tickerValid[prefix] = true;
         const label = data.name ? esc(data.name) : 'Valid ticker';
         validMsg = `<span style="color:#16a34a">&#10003; ${label}</span>`;
       } else {
+        _tickerValid[prefix] = false;
         validMsg = `<span style="color:#ef4444">&#10007; Not found on ${esc(market)}</span>`;
       }
       hint.innerHTML = mismatchWarning ? `${validMsg} &nbsp; ${mismatchWarning}` : validMsg;
     } catch {
+      _tickerValid[prefix] = null;
       hint.innerHTML = mismatchWarning || '<span style="color:#94a3b8">Could not validate</span>';
     }
   }
