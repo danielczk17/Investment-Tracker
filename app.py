@@ -1121,36 +1121,30 @@ def api_backfill():
     existing_dates  = {s["date"] for s in existing}
     existing_months = {s["date"][:7] for s in existing}
 
-    # Last 30 days use daily granularity; older history uses monthly end-of-month.
+    # Last 30 days: daily granularity.  Older history: month-end only.
+    # Each day is classified independently so months that span the boundary
+    # (e.g. July when cutoff falls on Jul 17) get daily coverage for the
+    # recent portion and a single month-end snapshot for the older portion.
     DAILY_WINDOW = timedelta(days=30)
     daily_cutoff = today - DAILY_WINDOW
 
-    # Build the list of target dates to generate snapshots for.
     target_dates: list[_date] = []
-    cur_year, cur_month = start_date.year, start_date.month
-    while (cur_year, cur_month) <= (today.year, today.month):
-        month_start = _date(cur_year, cur_month, 1)
-        month_end   = (_date(cur_year, cur_month, calendar.monthrange(cur_year, cur_month)[1])
-                       if not (cur_year == today.year and cur_month == today.month)
-                       else today)
+    d = start_date
+    while d <= today:
+        snap_str      = d.strftime("%Y-%m-%d")
+        month_key     = f"{d.year:04d}-{d.month:02d}"
+        last_of_month = _date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
 
-        if month_start > daily_cutoff:
-            # Daily granularity for recent months
-            d = max(month_start, daily_cutoff + timedelta(days=1))
-            while d <= month_end:
-                if d.strftime("%Y-%m-%d") not in existing_dates:
-                    target_dates.append(d)
-                d += timedelta(days=1)
-        else:
-            # Monthly granularity for older history
-            month_key = f"{cur_year:04d}-{cur_month:02d}"
+        if d > daily_cutoff:
+            # Daily zone — add every missing day
+            if snap_str not in existing_dates:
+                target_dates.append(d)
+        elif d == last_of_month:
+            # Monthly zone — add month-end only if this month has no snapshot yet
             if month_key not in existing_months:
-                target_dates.append(month_end)
+                target_dates.append(d)
 
-        cur_month += 1
-        if cur_month > 12:
-            cur_month = 1
-            cur_year += 1
+        d += timedelta(days=1)
 
     new_snapshots: list[dict] = []
     for snap_date in target_dates:

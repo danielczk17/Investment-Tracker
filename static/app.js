@@ -1114,14 +1114,28 @@
     const yMax     = rawMax + pad;
     const yRange   = yMax - yMin || 1;
 
-    const toX = i => PAD_L + (n < 2 ? chartW / 2 : i / (n - 1) * chartW);
-    const toY = v => PAD_T + (1 - (v - yMin) / yRange) * chartH;
+    // Time-proportional X axis: domain is always the full period window so
+    // the chart honestly represents how much of the period has data.
+    const periodDays = { '7D': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365 };
+    const now        = new Date(); now.setHours(0, 0, 0, 0);
+    const tMax       = now.getTime();
+    const tMin       = equityPeriod === 'ALL'
+      ? new Date(filtered[0].date + 'T00:00:00').getTime()
+      : tMax - (periodDays[equityPeriod] || 365) * 86400000;
+    const tRange     = tMax - tMin || 1;
 
-    const vPts = values.map((v, i)   => ({ x: toX(i), y: toY(v) }));
-    const iPts = invested.map((v, i) => ({ x: toX(i), y: toY(v) }));
+    const toX = t  => PAD_L + (t - tMin) / tRange * chartW;
+    const toY = v  => PAD_T + (1 - (v - yMin) / yRange) * chartH;
+    const snapT = s => new Date(s.date + 'T00:00:00').getTime();
+
+    const vPts = filtered.map(s => ({ x: toX(snapT(s)), y: toY(s.value) }));
+    const iPts = filtered.map(s => ({ x: toX(snapT(s)), y: toY(s.invested) }));
+
+    // Total actual span for choosing label format
+    const spanDays = tRange / 86400000;
 
     equityLayout = { dpr, W, H, PAD_L, PAD_R, PAD_T, PAD_B, chartW, chartH, n,
-                     yMin, yRange, filtered, vPts, iPts, values, invested };
+                     yMin, yRange, tMin, tRange, filtered, vPts, iPts, values, invested };
 
     const isDark     = document.body.classList.contains('dark');
     const gridColor  = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
@@ -1140,13 +1154,18 @@
       ctx.fillText(sym.trim() + fmtK(v), PAD_L - 6, y + 3.5);
     }
 
-    // X-axis date labels
+    // X-axis date labels — evenly spaced across the full time domain
+    const dateFmt = spanDays > 300
+      ? { month: 'short', year: '2-digit' }
+      : { day: 'numeric', month: 'short' };
+    const xCount = spanDays <= 14 ? Math.min(Math.ceil(spanDays) + 1, 8) : 6;
+
     ctx.fillStyle = labelColor; ctx.font = FONT; ctx.textAlign = 'center';
-    const xCount = Math.min(n, 6);
     for (let i = 0; i < xCount; i++) {
-      const idx = Math.round(i * (n - 1) / Math.max(xCount - 1, 1));
-      const d   = new Date(filtered[idx].date + 'T00:00:00');
-      ctx.fillText(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), toX(idx), H - PAD_B + 14);
+      const t = tMin + i / (xCount - 1) * tRange;
+      const x = toX(t);
+      if (x < PAD_L || x > W - PAD_R) continue;  // skip if outside plot area
+      ctx.fillText(new Date(t).toLocaleDateString('en-GB', dateFmt), x, H - PAD_B + 14);
     }
 
     const isGain   = values[n - 1] >= invested[n - 1];
