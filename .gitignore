@@ -52,3 +52,7 @@ tempCodeRunnerFile.py
 .env
 .envrc
 .ruff_cache/
+
+# ── Graphify ──
+graphify-out/*
+!graphify-out/GRAPH_REPORT.md
