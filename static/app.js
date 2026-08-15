@@ -175,6 +175,8 @@
     renderSummary(data);
     renderPieChart(data.holdings);
     renderHoldings(data.holdings);
+    renderHeatmap(data.holdings);
+    renderTopHoldings(data.holdings);
     renderLog(data.purchases);
     renderWinnersLosers();
     document.getElementById('last-updated').textContent =
@@ -186,18 +188,23 @@
     document.getElementById('s-invested').textContent = fmtBase(totals.total_invested);
     document.getElementById('s-value').textContent    = fmtBase(totals.total_current_value);
 
-    const glEl  = document.getElementById('s-gl');
-    glEl.textContent  = fmtBase(totals.gain_loss_amount);
-    glEl.className    = 'val ' + colorCls(totals.gain_loss_amount);
+    const ytdEl = document.getElementById('s-ytd');
+    if (totals.ytd_return_pct == null) {
+      ytdEl.textContent  = 'N/A';
+      ytdEl.className    = 'val';
+    } else {
+      ytdEl.textContent = fmtPct(totals.ytd_return_pct);
+      ytdEl.className   = 'val ' + colorCls(totals.ytd_return_pct);
+    }
 
-    const pctEl = document.getElementById('s-gl-pct');
-    pctEl.textContent = fmtPct(totals.gain_loss_pct);
-    pctEl.className   = 'sub ' + colorCls(totals.gain_loss_pct);
-
-    document.getElementById('s-tickers').textContent =
-      holdings.length + ' ticker' + (holdings.length !== 1 ? 's' : '');
-    document.getElementById('s-buys').textContent =
-      purchases.length + ' purchase' + (purchases.length !== 1 ? 's' : '');
+    const oneYEl = document.getElementById('s-1y');
+    if (totals.one_year_return_pct == null) {
+      oneYEl.textContent = 'N/A';
+      oneYEl.className   = 'val';
+    } else {
+      oneYEl.textContent = fmtPct(totals.one_year_return_pct);
+      oneYEl.className   = 'val ' + colorCls(totals.one_year_return_pct);
+    }
 
     // FX rate note under summary strip
     const fxEl = document.getElementById('fx-note');
@@ -758,10 +765,10 @@
   }
 
   // ── Performance state ─────────────────────────────────────────────────────
-  let perfPeriod = 'ALL';
-  let snapData   = [];
-  let benchData  = [];     // SPY daily closes [{date, close}]
-  let perfLayout = null;   // geometry/data shared between renderPerfChart and _perfHover
+  let perfPeriod   = 'ALL';
+  let equityPeriod = 'ALL';
+  let snapData     = [];
+  let equityLayout = null;   // geometry/data shared between renderEquityChart and _equityHover
 
   // Filters a snapshots array to only those within the selected time window.
   function filterSnapshots(snaps, period) {
@@ -772,26 +779,12 @@
     return snaps.filter(s => new Date(s.date) >= cutoff);
   }
 
-  // Changes the active performance period button and re-renders the chart.
-  function setPerfPeriod(p) {
-    perfPeriod = p;
-    document.querySelectorAll('.perf-btn').forEach(b =>
-      b.classList.toggle('active', b.id === 'pb-' + p));
-    renderPerfChart(snapData);
-  }
-
-  // Loads monthly portfolio snapshots from the API and renders the performance chart.
+  // Loads portfolio snapshots from the API and renders the equity curve.
   async function fetchSnapshots() {
     try {
       const res = await fetch('/api/snapshots');
       snapData  = await res.json();
-      if (snapData.length) {
-        try {
-          const bRes = await fetch('/api/benchmark?from=' + snapData[0].date + '&ticker=' + (appSettings?.benchmark_ticker || 'SPY'));
-          benchData = await bRes.json();
-        } catch { benchData = []; }
-      }
-      renderPerfChart(snapData);
+      renderEquityChart(snapData);
     } catch { /* silently ignore */ }
   }
 
@@ -1064,6 +1057,550 @@
     const left = (px + 12 + tipW > W - 20) ? px - tipW - 12 : px + 12;
     tip.style.left = left + 'px';
     tip.style.top  = (PAD_T + 4) + 'px';
+  }
+
+  // ── Equity Curve ─────────────────────────────────────────────────────────
+
+  function setEquityPeriod(p) {
+    equityPeriod = p;
+    document.querySelectorAll('[id^="eq-"]').forEach(b =>
+      b.classList.toggle('active', b.id === 'eq-' + p));
+    renderEquityChart(snapData);
+  }
+
+  function renderEquityChart(snaps) {
+    const card      = document.getElementById('equity-card');
+    const emptyEl   = document.getElementById('equity-empty');
+    const chartArea = document.getElementById('equity-chart-area');
+    const legendEl  = document.getElementById('equity-legend');
+    if (!card) return;
+
+    const filtered = filterSnapshots(snaps, equityPeriod);
+    if (filtered.length < 2) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+    emptyEl.style.display   = 'none';
+    chartArea.style.display = '';
+
+    const baseCanvas  = document.getElementById('equity-base');
+    const crossCanvas = document.getElementById('equity-cross');
+    const dpr = window.devicePixelRatio || 1;
+    const W   = baseCanvas.parentElement.clientWidth || 700;
+    const H   = 210;
+
+    [baseCanvas, crossCanvas].forEach(c => {
+      c.width = W * dpr; c.height = H * dpr;
+      c.style.width = W + 'px'; c.style.height = H + 'px';
+    });
+
+    const ctx = baseCanvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const PAD_L = 68, PAD_R = 20, PAD_T = 18, PAD_B = 34;
+    const chartW = W - PAD_L - PAD_R;
+    const chartH = H - PAD_T - PAD_B;
+    const n      = filtered.length;
+
+    const values   = filtered.map(s => s.value);
+    const invested = filtered.map(s => s.invested);
+    const allVals  = [...values, ...invested].filter(v => v != null && isFinite(v));
+    const rawMin   = Math.min(...allVals);
+    const rawMax   = Math.max(...allVals);
+    const pad      = Math.max((rawMax - rawMin) * 0.12, rawMax * 0.02, 1);
+    const yMin     = Math.max(0, rawMin - pad);
+    const yMax     = rawMax + pad;
+    const yRange   = yMax - yMin || 1;
+
+    const toX = i => PAD_L + (n < 2 ? chartW / 2 : i / (n - 1) * chartW);
+    const toY = v => PAD_T + (1 - (v - yMin) / yRange) * chartH;
+
+    const vPts = values.map((v, i)   => ({ x: toX(i), y: toY(v) }));
+    const iPts = invested.map((v, i) => ({ x: toX(i), y: toY(v) }));
+
+    equityLayout = { dpr, W, H, PAD_L, PAD_R, PAD_T, PAD_B, chartW, chartH, n,
+                     yMin, yRange, filtered, vPts, iPts, values, invested };
+
+    const isDark     = document.body.classList.contains('dark');
+    const gridColor  = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+    const labelColor = isDark ? '#64748b' : '#94a3b8';
+    const FONT       = '10px system-ui,-apple-system,sans-serif';
+    const sym        = symOf(BASE_CCY);
+
+    // Y-axis gridlines + labels
+    for (let i = 0; i <= 4; i++) {
+      const v = yMin + yRange * i / 4;
+      const y = toY(v);
+      ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+      ctx.fillStyle = labelColor; ctx.font = FONT;
+      ctx.textAlign = 'right';
+      ctx.fillText(sym.trim() + fmtK(v), PAD_L - 6, y + 3.5);
+    }
+
+    // X-axis date labels
+    ctx.fillStyle = labelColor; ctx.font = FONT; ctx.textAlign = 'center';
+    const xCount = Math.min(n, 6);
+    for (let i = 0; i < xCount; i++) {
+      const idx = Math.round(i * (n - 1) / Math.max(xCount - 1, 1));
+      const d   = new Date(filtered[idx].date + 'T00:00:00');
+      ctx.fillText(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), toX(idx), H - PAD_B + 14);
+    }
+
+    const isGain   = values[n - 1] >= invested[n - 1];
+    const lineClr  = isGain ? '#16a34a' : '#ef4444';
+
+    // Invested dashed line
+    ctx.save();
+    ctx.strokeStyle = isDark ? '#475569' : '#cbd5e1';
+    ctx.lineWidth   = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    iPts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+    ctx.restore();
+
+    // Area fill under value line
+    const grad = ctx.createLinearGradient(0, PAD_T, 0, H - PAD_B);
+    grad.addColorStop(0, isGain ? 'rgba(22,163,74,0.18)' : 'rgba(239,68,68,0.18)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    vPts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.lineTo(vPts[n - 1].x, H - PAD_B);
+    ctx.lineTo(vPts[0].x,     H - PAD_B);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Value line
+    ctx.strokeStyle = lineClr; ctx.lineWidth = 2;
+    ctx.lineJoin    = 'round';  ctx.setLineDash([]);
+    ctx.beginPath();
+    vPts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // Legend
+    const lastGain    = values[n - 1] - invested[n - 1];
+    const lastGainPct = invested[n - 1] > 0 ? lastGain / invested[n - 1] * 100 : 0;
+    const glSign      = lastGain >= 0 ? '+' : '';
+    legendEl.innerHTML = `
+      <span style="display:flex;align-items:center;gap:.3rem">
+        <span style="width:14px;height:2px;background:${lineClr};display:inline-block;border-radius:2px"></span> Portfolio Value
+      </span>
+      <span style="display:flex;align-items:center;gap:.3rem">
+        <span style="width:14px;height:0;border-top:2px dashed ${isDark?'#475569':'#cbd5e1'};display:inline-block"></span> Invested
+      </span>
+      <span style="margin-left:.25rem;color:${lineClr};font-weight:600">${glSign}${sym}${fmt(Math.abs(lastGain))} (${glSign}${fmt(lastGainPct)}%)</span>`;
+
+    // Crosshair handlers
+    crossCanvas.onmousemove  = e => _equityHover(e);
+    crossCanvas.onmouseleave = () => {
+      document.getElementById('equity-cross').getContext('2d').clearRect(0, 0, W * dpr, H * dpr);
+      document.getElementById('equity-tip').style.display = 'none';
+    };
+  }
+
+  function _equityHover(e) {
+    if (!equityLayout) return;
+    const { dpr, W, H, PAD_L, PAD_R, PAD_T, PAD_B, n, filtered, vPts, iPts, values, invested } = equityLayout;
+    const canvas = document.getElementById('equity-cross');
+    const rect   = canvas.getBoundingClientRect();
+    const mx     = e.clientX - rect.left;
+    const tip    = document.getElementById('equity-tip');
+
+    if (mx < PAD_L - 10 || mx > W - PAD_R + 10) {
+      canvas.getContext('2d').clearRect(0, 0, W * dpr, H * dpr);
+      tip.style.display = 'none';
+      return;
+    }
+
+    let nearest = 0, minDist = Infinity;
+    vPts.forEach((p, i) => { const d = Math.abs(p.x - mx); if (d < minDist) { minDist = d; nearest = i; } });
+
+    const ctx2 = canvas.getContext('2d');
+    ctx2.clearRect(0, 0, W * dpr, H * dpr);
+    ctx2.scale(dpr, dpr);
+
+    const isDark  = document.body.classList.contains('dark');
+    const isGain  = values[n - 1] >= invested[n - 1];
+    const dotClr  = isGain ? '#16a34a' : '#ef4444';
+    const p       = vPts[nearest];
+
+    // Vertical crosshair
+    ctx2.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)';
+    ctx2.lineWidth = 1; ctx2.setLineDash([3, 3]);
+    ctx2.beginPath(); ctx2.moveTo(p.x, PAD_T); ctx2.lineTo(p.x, H - PAD_B); ctx2.stroke();
+    ctx2.setLineDash([]);
+
+    // Dot on value line
+    ctx2.fillStyle = dotClr;
+    ctx2.beginPath(); ctx2.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx2.fill();
+    ctx2.strokeStyle = '#fff'; ctx2.lineWidth = 1.5; ctx2.stroke();
+
+    // Tooltip
+    const snap     = filtered[nearest];
+    const sym      = symOf(BASE_CCY);
+    const gain     = snap.value - snap.invested;
+    const gainPct  = snap.invested > 0 ? gain / snap.invested * 100 : 0;
+    const glSign   = gain >= 0 ? '+' : '';
+    const glColor  = gain >= 0 ? '#4ade80' : '#f87171';
+    tip.style.display = '';
+    tip.innerHTML = `
+      <div style="font-weight:600;margin-bottom:.3rem;color:#94a3b8">${snap.date}</div>
+      <div style="display:flex;justify-content:space-between;gap:1.2rem"><span>Value</span><strong>${sym}${fmt(snap.value)}</strong></div>
+      <div style="display:flex;justify-content:space-between;gap:1.2rem"><span style="color:#94a3b8">Invested</span><span>${sym}${fmt(snap.invested)}</span></div>
+      <div style="display:flex;justify-content:space-between;gap:1.2rem"><span style="color:#94a3b8">Gain/Loss</span><span style="color:${glColor}">${glSign}${sym}${fmt(Math.abs(gain))} (${glSign}${fmt(gainPct)}%)</span></div>`;
+
+    const tipW = tip.offsetWidth || 175;
+    tip.style.left = (p.x + 12 + tipW > W - PAD_R ? p.x - tipW - 12 : p.x + 12) + 'px';
+    tip.style.top  = Math.max(PAD_T, Math.min(p.y - 40, H - PAD_B - 80)) + 'px';
+  }
+
+  // ── Concentration heatmap (squarified treemap) ───────────────────────────
+
+  let _heatTiles = [];   // [{x,y,w,h, ticker, name, weight, glPct}] for hit-testing
+
+  // Worst aspect ratio across a candidate row of areas, given the row's short side
+  function _heatWorstAspect(areas, side) {
+    const s = areas.reduce((a, b) => a + b, 0);
+    const mx = Math.max(...areas), mn = Math.min(...areas);
+    return Math.max(side * side * mx / (s * s), s * s / (side * side * mn));
+  }
+
+  // Recursive squarify: mutates `out` with {x,y,w,h,...node} entries
+  function _heatSquarify(nodes, x0, y0, x1, y1, out) {
+    if (!nodes.length) return;
+    if (nodes.length === 1) {
+      out.push({ ...nodes[0], x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+      return;
+    }
+    const W = x1 - x0, H = y1 - y0;
+    const isWide  = W >= H;
+    const side    = isWide ? H : W;
+
+    let row = [], rowArea = 0, prevWorst = Infinity, cutIdx = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      const candidate = [...row.map(n => n.area), nodes[i].area];
+      const worst = _heatWorstAspect(candidate, side);
+      if (row.length > 0 && worst > prevWorst) break;
+      row.push(nodes[i]);
+      rowArea += nodes[i].area;
+      prevWorst = worst;
+      cutIdx = i + 1;
+    }
+
+    const thickness = rowArea / side;
+    let cursor = isWide ? y0 : x0;
+    for (const node of row) {
+      const len = node.area / thickness;
+      if (isWide) {
+        out.push({ ...node, x: x0, y: cursor, w: thickness, h: len });
+        cursor += len;
+      } else {
+        out.push({ ...node, x: cursor, y: y0, w: len, h: thickness });
+        cursor += len;
+      }
+    }
+
+    const rest = nodes.slice(cutIdx);
+    if (!rest.length) return;
+    if (isWide) _heatSquarify(rest, x0 + thickness, y0, x1, y1, out);
+    else        _heatSquarify(rest, x0, y0 + thickness, x1, y1, out);
+  }
+
+  // Map a portfolio weight % to a heat colour (green → yellow → orange → red)
+  function _heatColor(weight) {
+    const stops = [
+      { at: 0,  rgb: [34,  197, 94]  },  // green
+      { at: 10, rgb: [234, 179, 8]   },  // yellow
+      { at: 22, rgb: [249, 115, 22]  },  // orange
+      { at: 40, rgb: [239, 68,  68]  },  // red
+    ];
+    const w = Math.min(weight, stops[stops.length - 1].at);
+    for (let i = 0; i < stops.length - 1; i++) {
+      const lo = stops[i], hi = stops[i + 1];
+      if (w <= hi.at) {
+        const t = (w - lo.at) / (hi.at - lo.at);
+        const r = Math.round(lo.rgb[0] + t * (hi.rgb[0] - lo.rgb[0]));
+        const g = Math.round(lo.rgb[1] + t * (hi.rgb[1] - lo.rgb[1]));
+        const b = Math.round(lo.rgb[2] + t * (hi.rgb[2] - lo.rgb[2]));
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+    return `rgb(239,68,68)`;
+  }
+
+  function renderHeatmap(holdings) {
+    const card   = document.getElementById('heatmap-card');
+    const canvas = document.getElementById('heatmap-canvas');
+    if (!card || !canvas) return;
+
+    const row   = document.getElementById('heatmap-holdings-row');
+    const valid = (holdings || []).filter(h => h.current_value_base > 0);
+    if (!valid.length) { if (row) row.style.display = 'none'; return; }
+    if (row) row.style.display = 'flex';
+
+    const total = valid.reduce((s, h) => s + h.current_value_base, 0);
+    const items = valid
+      .map(h => ({
+        ticker: h.ticker.replace(/\.[A-Z0-9]+$/i, ''),
+        name:   h.company_name || h.ticker,
+        weight: h.current_value_base / total * 100,
+        glPct:  h.gain_loss_pct,
+        market: h.market,
+        value:  h.current_value_base,
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    const DPR = window.devicePixelRatio || 1;
+    const W   = canvas.offsetWidth || 700;
+    const H   = 260;
+    canvas.width       = W * DPR;
+    canvas.height      = H * DPR;
+    canvas.style.height = H + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(DPR, DPR);
+
+    // Compute squarified layout
+    const totalArea = W * H;
+    const nodes = items.map(d => ({ ...d, area: d.value / total * totalArea }));
+    const raw = [];
+    _heatSquarify(nodes, 0, 0, W, H, raw);
+
+    const GAP = 3;
+    _heatTiles = [];
+
+    raw.forEach(t => {
+      const x = t.x + GAP, y = t.y + GAP;
+      const w = t.w - GAP * 2,  h = t.h - GAP * 2;
+      if (w < 2 || h < 2) return;
+
+      _heatTiles.push({ x, y, w, h, ticker: t.ticker, name: t.name, weight: t.weight, glPct: t.glPct });
+
+      // Tile background
+      ctx.fillStyle = _heatColor(t.weight);
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 5);
+      ctx.fill();
+
+      // Subtle inner shadow for depth
+      ctx.strokeStyle = 'rgba(0,0,0,.12)';
+      ctx.lineWidth   = 1;
+      ctx.stroke();
+
+      if (w < 28 || h < 18) return;  // too small for any text
+
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      const cx = x + w / 2, cy = y + h / 2;
+      const textAlpha = 'rgba(255,255,255,0.95)';
+
+      if (h >= 72 && w >= 72) {
+        // Large tile: ticker + weight + gain/loss
+        const fs = Math.min(18, Math.floor(w / 4));
+        ctx.fillStyle = textAlpha;
+        ctx.font      = `700 ${fs}px Inter,system-ui,sans-serif`;
+        ctx.fillText(t.ticker, cx, cy - fs * 0.75);
+
+        ctx.font      = `500 ${Math.max(11, fs - 4)}px Inter,system-ui,sans-serif`;
+        ctx.fillText(fmt(t.weight, 1) + '%', cx, cy + fs * 0.35);
+
+        if (t.glPct != null && h >= 90) {
+          const sign = t.glPct >= 0 ? '+' : '';
+          ctx.fillStyle = t.glPct >= 0 ? 'rgba(187,247,208,.9)' : 'rgba(254,202,202,.9)';
+          ctx.font      = `400 ${Math.max(10, fs - 5)}px Inter,system-ui,sans-serif`;
+          ctx.fillText(sign + fmt(t.glPct, 2) + '%', cx, cy + fs * 1.35);
+        }
+      } else if (h >= 40 && w >= 42) {
+        // Medium tile: ticker + weight
+        const fs = Math.min(14, Math.floor(w / 4.5));
+        ctx.fillStyle = textAlpha;
+        ctx.font      = `700 ${fs}px Inter,system-ui,sans-serif`;
+        ctx.fillText(t.ticker, cx, cy - fs * 0.6);
+        ctx.font      = `400 ${Math.max(10, fs - 2)}px Inter,system-ui,sans-serif`;
+        ctx.fillText(fmt(t.weight, 1) + '%', cx, cy + fs * 0.75);
+      } else {
+        // Small tile: just ticker
+        const fs = Math.min(12, Math.floor(Math.min(w, h) / 2.5));
+        ctx.fillStyle = textAlpha;
+        ctx.font      = `700 ${fs}px Inter,system-ui,sans-serif`;
+        ctx.fillText(t.ticker, cx, cy);
+      }
+    });
+  }
+
+  // Tooltip on heatmap mousemove
+  (function _attachHeatmapTooltip() {
+    const canvas = document.getElementById('heatmap-canvas');
+    const tip    = document.getElementById('heatmap-tip');
+    if (!canvas || !tip) return;
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const hit = _heatTiles.find(t => mx >= t.x && mx <= t.x + t.w && my >= t.y && my <= t.y + t.h);
+      if (!hit) { tip.style.display = 'none'; return; }
+
+      const sym  = symOf(BASE_CCY);
+      const sign = (hit.glPct ?? 0) >= 0 ? '+' : '';
+      const glColor = hit.glPct == null ? 'var(--text-faint)' : (hit.glPct >= 0 ? '#16a34a' : '#dc2626');
+      tip.innerHTML =
+        `<div style="font-weight:700;color:var(--text)">${esc(hit.name)}</div>` +
+        `<div style="color:var(--text-mid)">${esc(hit.ticker)} · ${sym}${fmt(hit.weight / 100 * (portfolioData?.totals?.total_current_value ?? 0))} (${fmt(hit.weight, 1)}%)</div>` +
+        (hit.glPct != null ? `<div style="color:${glColor}">${sign}${fmt(hit.glPct, 2)}% gain/loss</div>` : '');
+
+      // Position tooltip so it doesn't overflow the card
+      const padEl = canvas.parentElement;
+      const padRect = padEl.getBoundingClientRect();
+      let tx = e.clientX - padRect.left + 12;
+      let ty = e.clientY - padRect.top  + 12;
+      tip.style.display = 'block';
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      if (tx + tw > padRect.width  - 8) tx = e.clientX - padRect.left - tw - 12;
+      if (ty + th > padRect.height - 8) ty = e.clientY - padRect.top  - th - 12;
+      tip.style.left = tx + 'px';
+      tip.style.top  = ty + 'px';
+    });
+
+    canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  })();
+
+  // ── Look-through exposure bars ────────────────────────────────────────────
+
+  const _etfCache = {};   // symbol → holdings array, session-scoped
+
+  async function _fetchEtfHoldings(symbol) {
+    if (symbol in _etfCache) return _etfCache[symbol];
+    try {
+      const res  = await fetch(`/api/etf-holdings?symbol=${encodeURIComponent(symbol)}`);
+      const data = await res.json();
+      _etfCache[symbol] = data;
+      return data;
+    } catch {
+      _etfCache[symbol] = [];
+      return [];
+    }
+  }
+
+  async function renderTopHoldings(holdings) {
+    const card = document.getElementById('top-holdings-card');
+    const body = document.getElementById('top-holdings-body');
+    if (!card || !body) return;
+
+    const valid = (holdings || []).filter(h => h.current_value_base != null && h.current_value_base > 0);
+    if (!valid.length) { card.style.display = 'none'; return; }
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    body.innerHTML = '<div style="padding:.4rem 0;font-size:.8rem;color:var(--text-faint)">Computing look-through exposure…</div>';
+
+    const total = valid.reduce((s, h) => s + h.current_value_base, 0);
+
+    // Fetch ETF holdings for all holdings in parallel
+    const etfResults = await Promise.all(valid.map(h => _fetchEtfHoldings(h.ticker)));
+
+    // Build exposure map: underlying key → { name, value, vias[] }
+    const map = {};
+
+    const addTo = (key, name, value, via) => {
+      if (!map[key]) map[key] = { name, value: 0, vias: [] };
+      map[key].value += value;
+      if (via && !map[key].vias.includes(via)) map[key].vias.push(via);
+    };
+
+    valid.forEach((h, i) => {
+      const etfHoldings = etfResults[i];
+      const hVal        = h.current_value_base;
+      const shortTicker = h.ticker.replace(/\.[A-Z0-9]+$/i, '');
+
+      if (etfHoldings.length > 0) {
+        // ETF — distribute to underlying components
+        let covered = 0;
+        etfHoldings.forEach(eh => {
+          covered += eh.weight;
+          addTo(eh.symbol || eh.name, eh.name, hVal * eh.weight, shortTicker);
+        });
+        // Uncovered remainder → "ETF other holdings" bucket
+        const rem = 1 - covered;
+        if (rem > 0.005) {
+          const key = `__rem__${h.ticker}`;
+          addTo(key, `${shortTicker} · other holdings`, hVal * rem, null);
+          map[key]._isRemainder = true;
+        }
+      } else {
+        // Direct holding
+        const key = h.ticker;
+        addTo(key, h.company_name || shortTicker, hVal, null);
+        map[key]._direct = true;
+        map[key]._market = h.market;
+        map[key]._ticker = shortTicker;
+      }
+    });
+
+    // Sort: named holdings by value desc, remainder buckets last
+    const entries = Object.values(map).sort((a, b) => {
+      if (a._isRemainder && !b._isRemainder) return  1;
+      if (!a._isRemainder && b._isRemainder) return -1;
+      return b.value - a.value;
+    });
+
+    const TOP_N       = 12;
+    const named       = entries.filter(e => !e._isRemainder);
+    const remainder   = entries.filter(e =>  e._isRemainder);
+    const top         = named.slice(0, TOP_N);
+    const overflow    = named.slice(TOP_N);
+
+    const sym    = symOf(BASE_CCY);
+    const maxVal = top.length ? top[0].value : 1;
+
+    const makeRow = (e, label, value) => {
+      const pct   = value / total * 100;
+      const barW  = value / maxVal * 100;
+      const color = e._direct ? (MARKET_COLORS[e._market] || FALLBACK_COLOR) : '#6366f1';
+      const viaBadge = e.vias?.length
+        ? `<span style="font-size:.63rem;background:rgba(99,102,241,.12);color:#6366f1;border-radius:3px;padding:.05rem .3rem;margin-left:.3rem;vertical-align:middle;white-space:nowrap">via ${esc(e.vias.slice(0,2).join(', '))}${e.vias.length > 2 ? ' +' + (e.vias.length - 2) : ''}</span>`
+        : '';
+      const sub = e._direct
+        ? `<div style="font-size:.69rem;color:var(--text-faint)">${esc(e._ticker || '')}</div>`
+        : '';
+      return `
+        <div style="display:grid;grid-template-columns:140px 1fr 46px 88px;align-items:center;gap:.55rem;padding:.28rem 0;border-bottom:1px solid var(--border-subtle)">
+          <div style="min-width:0">
+            <div style="font-size:.8rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.name)}">${esc(label.length > 20 ? label.slice(0,19)+'…' : label)}${viaBadge}</div>
+            ${sub}
+          </div>
+          <div style="height:16px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${barW.toFixed(1)}%;background:${color};border-radius:3px;opacity:${e._isRemainder ? '.45' : '1'}"></div>
+          </div>
+          <div style="font-size:.77rem;font-weight:600;color:var(--text-mid);text-align:right">${fmt(pct, 1)}%</div>
+          <div style="font-size:.77rem;color:var(--text-mid);text-align:right">${sym}${fmt(value)}</div>
+        </div>`;
+    };
+
+    let html = '';
+    top.forEach(e => { html += makeRow(e, e.name, e.value); });
+
+    // Aggregate remainder ETF buckets + overflow named entries
+    const residualEntries = [...remainder, ...overflow];
+    if (residualEntries.length) {
+      const residualVal = residualEntries.reduce((s, e) => s + e.value, 0);
+      const dummy = { _isRemainder: true, name: 'Others', vias: [] };
+      html += makeRow(dummy, 'Others', residualVal);
+    }
+
+    // Legend key
+    const hasLookThrough = valid.some((h, i) => etfResults[i].length > 0);
+    if (hasLookThrough) {
+      html += `<div style="margin-top:.65rem;display:flex;gap:1rem;font-size:.72rem;color:var(--text-faint)">
+        <span style="display:flex;align-items:center;gap:.3rem"><span style="width:10px;height:10px;border-radius:2px;background:#22c55e;display:inline-block"></span>Direct (SGX)</span>
+        <span style="display:flex;align-items:center;gap:.3rem"><span style="width:10px;height:10px;border-radius:2px;background:#3b82f6;display:inline-block"></span>Direct (US)</span>
+        <span style="display:flex;align-items:center;gap:.3rem"><span style="width:10px;height:10px;border-radius:2px;background:#6366f1;display:inline-block"></span>ETF look-through</span>
+      </div>`;
+    }
+
+    body.innerHTML = html;
   }
 
   // ── Dividend state ────────────────────────────────────────────────────────
@@ -1508,7 +2045,9 @@
   // Updates the sell form price label to reflect the selected market's currency.
   function updateSellPriceLabel() {
     const mkt = document.getElementById('s-market').value;
-    document.getElementById('s-price-label').textContent = `Price/Unit (${symOf(ccyOf(mkt))})`;
+    const sym = symOf(ccyOf(mkt));
+    document.getElementById('s-price-label').textContent = `Price/Unit (${sym})`;
+    document.getElementById('s-fees-label').textContent  = `Fees (${sym})`;
   }
 
   // Updates the purchase form price and fees labels to reflect the selected market's currency.
@@ -1552,6 +2091,7 @@
       else if (sellSortCol === 'market')    { va = a.market.toLowerCase(); vb = b.market.toLowerCase(); }
       else if (sellSortCol === 'units')     { va = a.units; vb = b.units; }
       else if (sellSortCol === 'price_sold'){ va = a.price_sold; vb = b.price_sold; }
+      else if (sellSortCol === 'fees')      { va = a.fees ?? 0;  vb = b.fees ?? 0; }
       else if (sellSortCol === 'avg_cost')  { va = a.avg_cost;   vb = b.avg_cost; }
       else if (sellSortCol === 'gain')      { va = a.realized_gain ?? -Infinity; vb = b.realized_gain ?? -Infinity; }
       else if (sellSortCol === 'gain_pct')  { va = a.realized_gain_pct ?? -Infinity; vb = b.realized_gain_pct ?? -Infinity; }
@@ -1574,8 +2114,8 @@
     const start = (sellPage - 1) * PAGE_SIZE;
     const page  = sorted.slice(start, start + PAGE_SIZE);
 
-    const sellCols = ['date','ticker','market','units','price_sold','avg_cost','gain','gain_pct'];
-    const sellLabels = ['Date','Ticker','Market','Units','Sold At','Avg Cost','Gain/Loss','%'];
+    const sellCols = ['date','ticker','market','units','price_sold','fees','avg_cost','gain','gain_pct'];
+    const sellLabels = ['Date','Ticker','Market','Units','Sold At','Fees','Avg Cost','Gain/Loss','%'];
     const sth = (c, i) => {
       const active = sellSortCol === c;
       const arrow  = active ? (sellSortDir === -1 ? ' ▼' : ' ▲') : '';
@@ -1607,6 +2147,7 @@
         <td style="text-align:left">${esc(s.market)}</td>
         <td>${fmt(s.units, 4)}</td>
         <td>${sym}${fmt(s.price_sold)}</td>
+        <td>${s.fees ? sym + fmt(s.fees) : '—'}</td>
         <td>${sym}${fmt(s.avg_cost)}</td>
         <td class="${cls}">${glAmt}</td>
         <td class="${cls}">${glPct}</td>
@@ -1682,6 +2223,7 @@
     document.getElementById('s-date').value   = sell.date;
     document.getElementById('s-units').value  = sell.units;
     document.getElementById('s-price').value  = sell.price_sold;
+    document.getElementById('s-fees').value   = sell.fees || '';
     updateSellPriceLabel();
     document.getElementById('sell-submit-btn').textContent = 'Save Changes';
     document.getElementById('sell-cancel-btn').style.display = '';
@@ -1695,6 +2237,7 @@
     document.getElementById('s-ticker').value = '';
     document.getElementById('s-units').value  = '';
     document.getElementById('s-price').value  = '';
+    document.getElementById('s-fees').value   = '';
     document.getElementById('s-date').value   = new Date().toISOString().slice(0, 10);
     document.getElementById('s-market').value = 'SGX';
     updateSellPriceLabel();
@@ -1718,6 +2261,7 @@
     const date   = document.getElementById('s-date').value;
     const units  = parseFloat(document.getElementById('s-units').value);
     const price  = parseFloat(document.getElementById('s-price').value);
+    const fees   = parseFloat(document.getElementById('s-fees').value) || 0;
     if (!ticker)                      { showToast('Enter a ticker symbol.'); return; }
     if (_tickerValid['s'] === false)  { showToast(`"${ticker}" was not found on ${document.getElementById('s-market').value} — check the ticker and market.`); return; }
     if (_tickerValid['s'] === null)   { showToast('Ticker is still being validated — please wait a moment.'); return; }
@@ -1732,7 +2276,7 @@
       const res  = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, market, date, units, price_sold: price }),
+        body: JSON.stringify({ ticker, market, date, units, price_sold: price, fees }),
       });
       const data = await res.json();
       if (!res.ok) { showToast(data.error || 'Failed to record sale.'); return; }
@@ -2313,17 +2857,26 @@
     setInterval(() => { fetchPortfolio(); fetchSnapshots(); }, 60_000);
     checkForUpdate();
 
-    // Re-render performance chart when its container is resized (e.g. scrollbar appears)
     if (typeof ResizeObserver !== 'undefined') {
-      const perfWrap = document.getElementById('perf-wrap');
-      if (perfWrap) {
-        let _perfResizeTimer = null;
+      const equityWrap = document.getElementById('equity-wrap');
+      if (equityWrap) {
+        let _equityResizeTimer = null;
         new ResizeObserver(() => {
-          clearTimeout(_perfResizeTimer);
-          _perfResizeTimer = setTimeout(() => {
-            if (snapData.length) renderPerfChart(snapData);
+          clearTimeout(_equityResizeTimer);
+          _equityResizeTimer = setTimeout(() => {
+            if (snapData.length) renderEquityChart(snapData);
           }, 80);
-        }).observe(perfWrap);
+        }).observe(equityWrap);
+      }
+      const heatCanvas = document.getElementById('heatmap-canvas');
+      if (heatCanvas) {
+        let _heatResizeTimer = null;
+        new ResizeObserver(() => {
+          clearTimeout(_heatResizeTimer);
+          _heatResizeTimer = setTimeout(() => {
+            if (lastHoldings.length) renderHeatmap(lastHoldings);
+          }, 80);
+        }).observe(heatCanvas);
       }
     }
   });

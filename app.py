@@ -537,6 +537,68 @@ def build_response(purchases: list, sells: list | None = None) -> dict:
     overall_gl     = total_current_value_base - total_invested_base
     overall_gl_pct = (overall_gl / total_invested_base * 100) if total_invested_base else 0.0
 
+    # YTD and 1-year return using Time-Weighted Return (TWR / chain-linking)
+    def _twr(from_date: str) -> float | None:
+        """
+        Compute TWR from from_date to today using daily snapshots.
+        Each sub-period return is neutralised for cash flows so new deposits
+        don't inflate the figure:  r_i = value[i] / (value[i-1] + CF[i]) - 1
+        where CF[i] = invested[i] - invested[i-1].
+        Appends a synthetic 'today' sub-period using the live current value.
+        Returns None if fewer than 2 data points exist.
+        """
+        all_snaps = load_snapshots()
+        if not all_snaps or total_current_value_base == 0:
+            return None
+
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+        today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Keep only snapshots on or after from_date, sorted ascending
+        window = sorted(
+            [s for s in all_snaps
+             if datetime.strptime(s["date"], "%Y-%m-%d") >= from_dt],
+            key=lambda s: s["date"]
+        )
+
+        if not window:
+            # Portfolio didn't exist yet at from_date — no data to chain
+            return None
+
+        # Prepend the anchor: the snapshot immediately before the window (or first in window)
+        # so we have a clean starting value even if from_date falls between snapshots.
+        before = [s for s in all_snaps if datetime.strptime(s["date"], "%Y-%m-%d") < from_dt]
+        if before:
+            anchor = max(before, key=lambda s: s["date"])
+            chain = [anchor] + window
+        else:
+            chain = window  # portfolio started after from_date; use first available
+
+        # Append today's live value as the final point
+        last_invested = chain[-1].get("invested", chain[-1].get("value", 0))
+        chain.append({"date": today_dt.strftime("%Y-%m-%d"),
+                      "value": total_current_value_base,
+                      "invested": last_invested})
+
+        # Chain-link sub-period returns, skipping any where start value is 0
+        cumulative = 1.0
+        for i in range(1, len(chain)):
+            v_start = chain[i - 1].get("value", 0)
+            v_end   = chain[i].get("value", 0)
+            cf      = chain[i].get("invested", 0) - chain[i - 1].get("invested", 0)
+            denominator = v_start + max(cf, 0)   # only positive inflows adjust denominator
+            if denominator <= 0:
+                continue
+            cumulative *= v_end / denominator
+
+        return (cumulative - 1) * 100
+
+    today         = datetime.now()
+    ytd_target    = f"{today.year}-01-01"
+    oneyear_target = (today.replace(year=today.year - 1)).strftime("%Y-%m-%d")
+    ytd_return_pct      = _twr(ytd_target)
+    one_year_return_pct = _twr(oneyear_target)
+
     # Only expose non-base FX rates to the frontend
     fx_rates_out = {
         ccy: rate for ccy, rate in fx_to_base.items()
@@ -552,10 +614,12 @@ def build_response(purchases: list, sells: list | None = None) -> dict:
         "purchases":       purchases_out,
         "holdings":        holdings,
         "totals": {
-            "total_invested":      total_invested_base,
-            "total_current_value": total_current_value_base,
-            "gain_loss_amount":    overall_gl,
-            "gain_loss_pct":       overall_gl_pct,
+            "total_invested":       total_invested_base,
+            "total_current_value":  total_current_value_base,
+            "gain_loss_amount":     overall_gl,
+            "gain_loss_pct":        overall_gl_pct,
+            "ytd_return_pct":       ytd_return_pct,
+            "one_year_return_pct":  one_year_return_pct,
         },
         "base_currency":   BASE_CURRENCY,
         "currency_symbol": CURRENCY_SYMBOL,
@@ -832,7 +896,7 @@ def api_get_sells():
         if key not in buy_agg:
             buy_agg[key] = {"units": 0.0, "cost": 0.0}
         buy_agg[key]["units"] += float(p["units"])
-        buy_agg[key]["cost"]  += float(p["units"]) * float(p["price_paid"])
+        buy_agg[key]["cost"]  += float(p["units"]) * float(p["price_paid"]) + float(p.get("fees", 0))
     avg_costs = {k: v["cost"] / v["units"] if v["units"] else 0.0 for k, v in buy_agg.items()}
 
     result: list = []
@@ -845,8 +909,10 @@ def api_get_sells():
         units    = float(s["units"])
         sell_px  = float(s["price_sold"])
 
-        realized_gain     = (sell_px - avg_cost) * units
-        realized_gain_pct = ((sell_px - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0.0
+        sell_fees         = float(s.get("fees", 0))
+        realized_gain     = (sell_px - avg_cost) * units - sell_fees
+        cost_basis        = avg_cost * units
+        realized_gain_pct = (realized_gain / cost_basis * 100) if cost_basis > 0 else 0.0
 
         rate               = get_fx_rate(currency, BASE_CURRENCY)
         realized_gain_base = realized_gain * rate if rate is not None else None
@@ -903,6 +969,7 @@ def api_add_sell():
         "date":       str(data["date"]),
         "units":      units_to_sell,
         "price_sold": float(data["price_sold"]),
+        "fees":       float(data.get("fees") or 0),
         "market":     data["market"],
     }
     with _write_lock:
@@ -931,6 +998,7 @@ def api_update_sell(record_id):
             "date":       str(data["date"]),
             "units":      float(data["units"]),
             "price_sold": float(data["price_sold"]),
+            "fees":       float(data.get("fees") or 0),
             "market":     data["market"],
         }
         save_sells(sells)
@@ -1168,7 +1236,7 @@ def _build_export_buf() -> tuple:
         if key not in buy_agg:
             buy_agg[key] = {"units": 0.0, "cost": 0.0}
         buy_agg[key]["units"] += float(p["units"])
-        buy_agg[key]["cost"]  += float(p["units"]) * float(p["price_paid"])
+        buy_agg[key]["cost"]  += float(p["units"]) * float(p["price_paid"]) + float(p.get("fees", 0))
     avg_costs = {k: v["cost"] / v["units"] if v["units"] else 0.0 for k, v in buy_agg.items()}
 
     # Holdings via full portfolio calculation (includes live prices + FX)
@@ -1213,19 +1281,21 @@ def _build_export_buf() -> tuple:
 
     # ── Sheet 2: Sells ────────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Sells")
-    write_headers(ws2, ["Date", "Ticker", "Market", "Units Sold", "Price Sold",
+    write_headers(ws2, ["Date", "Ticker", "Market", "Units Sold", "Price Sold", "Fees",
                          "Avg Cost", "Realized Gain", "Gain %", "Currency"])
     for s in sorted(sells, key=lambda x: x["date"]):
-        key      = s["ticker"].upper()
-        ccy      = MARKET_CURRENCY.get(s["market"], "USD")
-        avg_cost = avg_costs.get(key, 0.0)
-        units    = float(s["units"])
-        sell_px  = float(s["price_sold"])
-        realized = (sell_px - avg_cost) * units
-        gain_pct = ((sell_px - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0.0
+        key        = s["ticker"].upper()
+        ccy        = MARKET_CURRENCY.get(s["market"], "USD")
+        avg_cost   = avg_costs.get(key, 0.0)
+        units      = float(s["units"])
+        sell_px    = float(s["price_sold"])
+        sell_fees  = float(s.get("fees") or 0)
+        realized   = (sell_px - avg_cost) * units - sell_fees
+        cost_basis = avg_cost * units
+        gain_pct   = (realized / cost_basis * 100) if cost_basis > 0 else 0.0
         ws2.append([
             s["date"], s["ticker"], s["market"],
-            units, sell_px, round(avg_cost, 4),
+            units, sell_px, sell_fees, round(avg_cost, 4),
             round(realized, 2), round(gain_pct, 2), ccy,
         ])
     auto_width(ws2)
@@ -1371,9 +1441,9 @@ def _build_import_template_buf() -> io.BytesIO:
     # Sheet 3 — Sells
     ws3 = wb.create_sheet("Sells")
     _make_sheet(ws3,
-        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Units Sold", "Price Per Unit"],
-        ["2024-06-10", "AAPL", "US", 5, 210.00],
-        [20, 12, 10, 12, 16])
+        ["Date (YYYY-MM-DD)", "Ticker", "Market", "Units Sold", "Price Per Unit", "Fees (optional)"],
+        ["2024-06-10", "AAPL", "US", 5, 210.00, 1.99],
+        [20, 12, 10, 12, 16, 16])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -1488,12 +1558,13 @@ def api_import_data():
                 if not any(c for c in row if c not in (None, "")):
                     continue
                 try:
-                    date_val, ticker, market, units, price = (list(row) + [None]*5)[:5]
+                    date_val, ticker, market, units, price, fees_raw = (list(row) + [None]*6)[:6]
                     date_str = _parse_date(date_val)
                     ticker   = str(ticker).strip().upper()
                     market   = str(market).strip()
                     units_f  = float(units)
                     price_f  = float(price)
+                    fees_f   = float(fees_raw) if fees_raw not in (None, "") else 0.0
                     if not ticker:   raise ValueError("Ticker is required")
                     if market not in VALID_MARKETS:
                         raise ValueError(f"Market '{market}' not recognised — valid: {', '.join(VALID_MARKETS)}")
@@ -1501,7 +1572,7 @@ def api_import_data():
                     if price_f <= 0: raise ValueError("Price must be greater than 0")
                     sells.append({"id": str(uuid.uuid4()), "ticker": ticker,
                                   "date": date_str, "units": units_f,
-                                  "price_sold": price_f, "market": market})
+                                  "price_sold": price_f, "fees": fees_f, "market": market})
                     added["sells"] += 1
                 except Exception as e:
                     errors.append(f"Sells row {row_idx}: {e}")
@@ -1580,6 +1651,38 @@ def api_search_ticker():
         return jsonify(suggestions)
     except Exception:
         return jsonify([])
+
+
+# ---------------------------------------------------------------------------
+# ETF look-through holdings
+# ---------------------------------------------------------------------------
+_etf_holdings_cache: dict = {}
+ETF_HOLDINGS_TTL = 86400   # 24 hours — ETF compositions change slowly
+
+
+@app.route("/api/etf-holdings")
+def api_etf_holdings():
+    """GET ?symbol=SPYL.L — top holdings for an ETF; empty list for direct stocks."""
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not symbol:
+        return jsonify([])
+    now = time.time()
+    cached = _etf_holdings_cache.get(symbol)
+    if cached and now - cached["ts"] < ETF_HOLDINGS_TTL:
+        return jsonify(cached["data"])
+    result = []
+    try:
+        top = yf.Ticker(symbol).funds_data.top_holdings
+        for sym, row in top.iterrows():
+            result.append({
+                "symbol": str(sym),
+                "name":   str(row.get("Name", sym)),
+                "weight": float(row.get("Holding Percent", 0)),
+            })
+    except Exception:
+        pass   # not an ETF or no data available → returns []
+    _etf_holdings_cache[symbol] = {"ts": now, "data": result}
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

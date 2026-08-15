@@ -55,14 +55,14 @@
       <div class="val" id="s-value">—</div>
     </div>
     <div class="summary-card">
-      <div class="lbl">Total Gain / Loss</div>
-      <div class="val" id="s-gl">—</div>
-      <div class="sub" id="s-gl-pct">—</div>
+      <div class="lbl">YTD Return</div>
+      <div class="val" id="s-ytd">—</div>
+      <div class="sub" id="s-ytd-sub">since Jan 1</div>
     </div>
     <div class="summary-card">
-      <div class="lbl">Portfolio</div>
-      <div class="val" id="s-tickers">—</div>
-      <div class="sub" id="s-buys">—</div>
+      <div class="lbl">1Y Return</div>
+      <div class="val" id="s-1y">—</div>
+      <div class="sub" id="s-1y-sub">trailing 12m</div>
     </div>
     <div class="summary-card">
       <div class="lbl" style="display:flex;align-items:center;gap:.3rem;">
@@ -95,29 +95,46 @@
 
   <div id="tab-dashboard">
 
-  <!-- ── Performance ── -->
-  <div class="card" id="perf-card">
+  <!-- ── Equity Curve ── -->
+  <div class="card" id="equity-card" style="display:none">
     <div class="card-header">
-      <span class="card-title">Performance</span>
+      <span class="card-title">Equity Curve</span>
       <div style="display:flex;align-items:center;gap:.35rem;margin-left:auto">
-        <button class="perf-btn" id="pb-7D"  onclick="setPerfPeriod('7D')">7D</button>
-        <button class="perf-btn" id="pb-1M"  onclick="setPerfPeriod('1M')">1M</button>
-        <button class="perf-btn" id="pb-3M"  onclick="setPerfPeriod('3M')">3M</button>
-        <button class="perf-btn" id="pb-6M"  onclick="setPerfPeriod('6M')">6M</button>
-        <button class="perf-btn" id="pb-1Y"  onclick="setPerfPeriod('1Y')">1Y</button>
-        <button class="perf-btn active" id="pb-ALL" onclick="setPerfPeriod('ALL')">ALL</button>
+        <button class="perf-btn" id="eq-7D"  onclick="setEquityPeriod('7D')">7D</button>
+        <button class="perf-btn" id="eq-1M"  onclick="setEquityPeriod('1M')">1M</button>
+        <button class="perf-btn" id="eq-3M"  onclick="setEquityPeriod('3M')">3M</button>
+        <button class="perf-btn" id="eq-6M"  onclick="setEquityPeriod('6M')">6M</button>
+        <button class="perf-btn" id="eq-1Y"  onclick="setEquityPeriod('1Y')">1Y</button>
+        <button class="perf-btn active" id="eq-ALL" onclick="setEquityPeriod('ALL')">ALL</button>
       </div>
     </div>
     <div style="padding:.75rem 1.25rem 1rem">
-      <div id="perf-empty" class="empty">No history yet — data is recorded automatically each time prices load.</div>
-      <div id="perf-chart-area" style="display:none">
-        <div style="position:relative" id="perf-wrap">
-          <canvas id="perf-base" style="display:block"></canvas>
-          <canvas id="perf-cross" style="display:block;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
-          <div id="perf-tip" style="position:absolute;display:none;background:#1e293b;color:#f8fafc;border-radius:6px;padding:.5rem .7rem;font-size:.78rem;pointer-events:none;white-space:nowrap;z-index:10;min-width:180px"></div>
+      <div id="equity-empty" class="empty" style="display:none">No history yet — data is recorded automatically each time prices load.</div>
+      <div id="equity-chart-area">
+        <div style="position:relative" id="equity-wrap">
+          <canvas id="equity-base" style="display:block"></canvas>
+          <canvas id="equity-cross" style="display:block;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+          <div id="equity-tip" style="position:absolute;display:none;background:#1e293b;color:#f8fafc;border-radius:6px;padding:.5rem .7rem;font-size:.78rem;pointer-events:none;white-space:nowrap;z-index:10;min-width:175px"></div>
         </div>
-        <div id="perf-legend" style="display:flex;gap:.85rem;margin-top:.6rem;font-size:.75rem;color:#475569"></div>
+        <div id="equity-legend" style="display:flex;gap:.85rem;margin-top:.6rem;font-size:.75rem;color:#475569"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Concentration + Top Holdings side-by-side ── -->
+  <div id="heatmap-holdings-row" style="display:none;gap:1rem;align-items:stretch;margin-bottom:1.25rem">
+    <div class="card" id="heatmap-card" style="flex:1.2;min-width:0;margin:0">
+      <div class="card-header"><span class="card-title">Concentration</span></div>
+      <div style="padding:.6rem 1.25rem .9rem;position:relative">
+        <canvas id="heatmap-canvas" style="display:block;width:100%;border-radius:6px"></canvas>
+        <div id="heatmap-tip" style="position:absolute;pointer-events:none;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:.45rem .65rem;font-size:.78rem;line-height:1.6;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:10;white-space:nowrap"></div>
+      </div>
+    </div>
+    <div class="card" id="top-holdings-card" style="flex:1;min-width:0;margin:0">
+      <div class="card-header">
+        <span class="card-title">Top Holdings</span>
+      </div>
+      <div id="top-holdings-body" style="padding:.6rem 1.25rem .9rem"></div>
     </div>
   </div>
 
@@ -257,7 +274,7 @@
       </div>
     </div>
     <div class="collapsible open" id="sell-body">
-      <div class="form-row" style="grid-template-columns:1.4fr 1fr 1fr 1.4fr 1.4fr auto;border-bottom:none">
+      <div class="form-row" style="grid-template-columns:1.4fr 1fr 1fr 1.4fr 1.4fr 1fr auto;border-bottom:none">
         <div class="fg">
           <label for="s-ticker">Ticker</label>
           <input id="s-ticker" type="text" placeholder="D05.SI" autocomplete="off"
@@ -278,6 +295,10 @@
         <div class="fg">
           <label for="s-price" id="s-price-label">Price/Unit (S$)</label>
           <input id="s-price" type="number" placeholder="0.00" min="0.01" step="0.01" />
+        </div>
+        <div class="fg">
+          <label for="s-fees" id="s-fees-label">Fees</label>
+          <input id="s-fees" type="number" placeholder="0.00" min="0" step="0.01" />
         </div>
         <div style="display:flex;flex-direction:column;gap:.4rem;justify-content:flex-end">
           <button class="btn btn-primary" id="sell-submit-btn" onclick="addSell()">Sell</button>
