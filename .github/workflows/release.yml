@@ -4,14 +4,56 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g. 1.2.0)'
+        required: true
+      notes:
+        description: 'Release notes'
+        required: true
 
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Bump version files
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version }}".TrimStart('v')
+          $notes   = "${{ github.event.inputs.notes }}"
+
+          $appPy = Get-Content app.py -Raw
+          $appPy = $appPy -replace '(?m)^(APP_VERSION\s*=\s*")[^"]*(")', "`${1}$version`${2}"
+          Set-Content app.py $appPy -Encoding utf8 -NoNewline
+
+          $json = [ordered]@{
+            version       = $version
+            download_url  = "https://github.com/${{ github.repository }}/releases/tag/v$version"
+            release_notes = $notes
+          } | ConvertTo-Json
+          Set-Content version.json $json -Encoding utf8
+
+      - name: Commit and tag
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version }}".TrimStart('v')
+          $notes   = "${{ github.event.inputs.notes }}"
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add app.py version.json
+          git commit -m "Release v$version"
+          git push
+          git tag -a "v$version" -m $notes
+          git push origin "v$version"
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -27,19 +69,37 @@ jobs:
       - name: Zip release bundle
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "v$("${{ github.event.inputs.version }}".TrimStart('v'))"
+          } else {
+            $version = "${{ github.ref_name }}"
+          }
           Compress-Archive -Path "dist\InvestmentTracker\*" -DestinationPath "InvestmentTracker-$version-windows.zip"
 
-      - name: Read release notes from version.json
+      - name: Read release notes
         id: notes
         shell: pwsh
         run: |
-          $json = Get-Content version.json | ConvertFrom-Json
+          $json  = Get-Content version.json | ConvertFrom-Json
           $notes = $json.release_notes
-          echo "notes=$notes" >> $env:GITHUB_OUTPUT
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "notes<<EOF"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value $notes
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "EOF"
+
+      - name: Resolve tag name
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "v$("${{ github.event.inputs.version }}".TrimStart('v'))"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$tag"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
           files: InvestmentTracker-*.zip
           body: ${{ steps.notes.outputs.notes }}

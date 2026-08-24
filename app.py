@@ -953,15 +953,8 @@ def api_add_sell():
     ticker        = str(data["ticker"]).upper().strip()
     units_to_sell = float(data["units"])
 
-    # Validate: can't sell more than remaining units
-    purchases   = load_portfolio()
-    sells_curr  = load_sells()
-    bought      = sum(float(p["units"]) for p in purchases if p["ticker"].upper() == ticker)
-    sold_so_far = sum(float(s["units"]) for s in sells_curr if s["ticker"].upper() == ticker)
-    remaining   = bought - sold_so_far
-
-    if units_to_sell > remaining + 1e-9:
-        return jsonify({"error": f"Only {remaining:.4f} units of {ticker} remaining"}), 400
+    purchases = load_portfolio()
+    bought    = sum(float(p["units"]) for p in purchases if p["ticker"].upper() == ticker)
 
     sell = {
         "id":         str(uuid.uuid4()),
@@ -973,6 +966,11 @@ def api_add_sell():
         "market":     data["market"],
     }
     with _write_lock:
+        sells_curr  = load_sells()
+        sold_so_far = sum(float(s["units"]) for s in sells_curr if s["ticker"].upper() == ticker)
+        remaining   = bought - sold_so_far
+        if units_to_sell > remaining + 1e-9:
+            return jsonify({"error": f"Only {remaining:.4f} units of {ticker} remaining"}), 400
         sells_curr.append(sell)
         save_sells(sells_curr)
     return jsonify({"success": True, "sell": sell}), 201

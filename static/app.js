@@ -726,6 +726,7 @@
       showToast(isEdit ? `Updated ${ticker}` : `Added ${fmt(units, 2)} × ${ticker}`);
       cancelEdit();
       await fetchPortfolio();
+      _rebuildSnapshots();
     } catch {
       showToast('Network error — purchase not saved.');
     } finally {
@@ -749,6 +750,7 @@
       showToast(`Deleted ${count} purchase entr${count === 1 ? 'y' : 'ies'}.`);
       selectedPurchases.clear();
       await fetchPortfolio();
+      _rebuildSnapshots();
     } catch {
       showToast('Failed to delete one or more purchases.');
     } finally {
@@ -2376,6 +2378,13 @@
     }
     appSettings.markets.splice(i, 1);
     renderSettingsPage();
+  }
+
+  async function _rebuildSnapshots() {
+    try {
+      await fetch('/api/snapshots/reset', { method: 'POST' });
+      await fetchSnapshots();
+    } catch { /* silent background rebuild */ }
   }
 
   async function rebuildPerformanceHistory() {
