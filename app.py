@@ -143,6 +143,17 @@ _sector_cache: dict = {}
 # Loaded from sector_overrides.json at startup; written back on every PUT /api/sector-override.
 _sector_overrides: dict = {}
 
+# Per-symbol locks prevent concurrent threads from hammering yfinance with duplicate
+# requests for the same ticker (which triggers rate-limiting and empty responses).
+_sector_symbol_locks: dict = {}
+_sector_symbol_locks_mu = threading.Lock()
+
+def _sector_lock_for(symbol: str) -> threading.Lock:
+    with _sector_symbol_locks_mu:
+        if symbol not in _sector_symbol_locks:
+            _sector_symbol_locks[symbol] = threading.Lock()
+        return _sector_symbol_locks[symbol]
+
 SECTOR_CACHE_TTL = 86400  # 24 hours — sector/company info rarely changes
 
 # All file writes go through this lock so that rapid back-to-back API calls
@@ -373,32 +384,48 @@ def get_price(ticker: str, market: str) -> float | None:
 
 def get_sector(ticker: str, market: str) -> str:
     """Return the sector/industry label for a ticker. Cached for 24 h."""
-    symbol = resolve_yf_symbol(ticker, market)
-    if symbol in _sector_overrides:
-        return _sector_overrides[symbol]
-    now = time.time()
-    cached = _sector_cache.get(symbol)
+    symbol   = resolve_yf_symbol(ticker, market)
+    override = _sector_overrides.get(symbol)
+    now      = time.time()
+    cached   = _sector_cache.get(symbol)
+
+    # Serve from cache when the name is already populated (fresh or override present).
+    # An override only controls the returned label — we still want the name fetched.
     if cached and now - cached["ts"] < SECTOR_CACHE_TTL:
-        return cached["sector"]
+        return override if override else cached["sector"]
 
-    sector   = "Unknown"
-    div_rate = None
-    name     = ""
-    try:
-        info = yf.Ticker(symbol).info
-        if info.get("quoteType") == "ETF":
-            sector = "ETF"
-        else:
-            sector = info.get("sector") or "Unknown"
-        div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or None
-        if div_rate is not None:
-            div_rate = float(div_rate) if float(div_rate) > 0 else None
-        name = info.get("longName") or info.get("shortName") or ""
-    except Exception:
-        pass
+    with _sector_lock_for(symbol):
+        # Re-check after acquiring the lock — another thread may have just fetched.
+        cached = _sector_cache.get(symbol)
+        if cached and now - cached["ts"] < SECTOR_CACHE_TTL:
+            return override if override else cached["sector"]
 
-    _sector_cache[symbol] = {"sector": sector, "div_rate": div_rate, "name": name, "ts": now}
-    return sector
+        sector    = "Unknown"
+        div_rate  = None
+        name      = ""
+        fetch_ok  = False
+        for attempt in range(3):
+            try:
+                info = yf.Ticker(symbol).info
+                if info.get("quoteType") == "ETF":
+                    sector = "ETF"
+                else:
+                    sector = info.get("sector") or "Unknown"
+                div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or None
+                if div_rate is not None:
+                    div_rate = float(div_rate) if float(div_rate) > 0 else None
+                name     = info.get("longName") or info.get("shortName") or ""
+                fetch_ok = True
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(0.5)
+
+        # If the fetch failed, cache briefly (60 s) so the next request retries.
+        ts = now if fetch_ok else now - (SECTOR_CACHE_TTL - 60)
+        _sector_cache[symbol] = {"sector": sector, "div_rate": div_rate, "name": name, "ts": ts}
+
+    return override if override else sector
 
 
 def get_company_name(ticker: str, market: str) -> str:
@@ -1720,6 +1747,7 @@ def _do_update_check() -> None:
         pass
     _update_cache = {"checked": True, "available": False, "version": APP_VERSION,
                      "download_url": "", "release_notes": ""}
+
 
 
 @app.route("/api/check-update")

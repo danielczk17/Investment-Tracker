@@ -620,7 +620,7 @@
       const s = h.sector || 'Unknown';
       indMap[s] = (indMap[s] || 0) + baseVal(h);
       if (!sectorTickersMap[s]) sectorTickersMap[s] = [];
-      sectorTickersMap[s].push({ ticker: h.ticker, market: h.market });
+      sectorTickersMap[s].push({ ticker: h.ticker, market: h.market, name: h.company_name || '' });
     }
     const indEntries = Object.entries(indMap)
       .sort((a, b) => b[1] - a[1])
@@ -637,6 +637,61 @@
       indEntries, indGrand,
       symOf(BASE_CCY).trim() + fmtK(indGrand), 'by industry'
     );
+
+    // Hover tooltip: show which stocks are in each industry slice
+    (function attachIndustryHover() {
+      const canvas = document.getElementById('industry-canvas');
+      const tip    = document.getElementById('industry-tip');
+      if (!canvas || !tip) return;
+      if (canvas._industryCleanup) canvas._industryCleanup();
+
+      const SIZE = 170, GAP = 0.02;
+      const outerR = SIZE / 2 - 6, innerR = outerR * 0.58;
+
+      function hitTest(e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (SIZE / rect.width)  - SIZE / 2;
+        const y = (e.clientY - rect.top)  * (SIZE / rect.height) - SIZE / 2;
+        const dist = Math.sqrt(x * x + y * y);
+        if (dist < innerR || dist > outerR) return null;
+        let a = Math.atan2(y, x) + Math.PI / 2;
+        if (a < 0) a += 2 * Math.PI;
+        let angle = 0;
+        for (const entry of indEntries) {
+          const raw = (entry.value / indGrand) * 2 * Math.PI;
+          const sw  = raw - GAP;
+          if (sw > 0 && a >= angle + GAP / 2 && a <= angle + GAP / 2 + sw) return entry;
+          angle += raw;
+        }
+        return null;
+      }
+
+      function onMove(e) {
+        const entry = hitTest(e);
+        if (!entry) { tip.style.display = 'none'; return; }
+        const stocks = sectorTickersMap[entry.label] || [];
+        const lines  = stocks.map(s => {
+          const label = s.name ? `${esc(s.ticker)} <span style="color:var(--text-faint)">${esc(s.name)}</span>` : esc(s.ticker);
+          return `<div>${label}</div>`;
+        }).join('');
+        tip.innerHTML = `<div style="font-weight:600;margin-bottom:.25rem;color:var(--text)">${esc(entry.label)}</div>${lines}`;
+        const rect = canvas.getBoundingClientRect();
+        const tw = tip.offsetWidth || 130;
+        const px = e.clientX - rect.left + 10;
+        tip.style.left = (px + tw > SIZE ? px - tw - 20 : px) + 'px';
+        tip.style.top  = Math.max(0, e.clientY - rect.top - 20) + 'px';
+        tip.style.display = 'block';
+      }
+      function onLeave() { tip.style.display = 'none'; }
+
+      canvas.addEventListener('mousemove', onMove);
+      canvas.addEventListener('mouseleave', onLeave);
+      canvas._industryCleanup = () => {
+        canvas.removeEventListener('mousemove', onMove);
+        canvas.removeEventListener('mouseleave', onLeave);
+      };
+    })();
+
     // Override legend to add per-sector edit buttons
     const indLegendEl = document.getElementById('industry-legend');
     indLegendEl.innerHTML = indEntries.map(e => {
@@ -1294,7 +1349,7 @@
       return b.value - a.value;
     });
 
-    const TOP_N       = 12;
+    const TOP_N       = 7;
     const named       = entries.filter(e => !e._isRemainder);
     const remainder   = entries.filter(e =>  e._isRemainder);
     const top         = named.slice(0, TOP_N);

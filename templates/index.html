@@ -172,11 +172,12 @@
         <div class="chart-section-inner">
           <div class="chart-sub-label">By Industry</div>
           <div class="donut-wrap">
-            <canvas id="industry-canvas"></canvas>
+            <canvas id="industry-canvas" style="cursor:default"></canvas>
             <div class="donut-center" id="industry-center">
               <span class="donut-val">—</span>
               <span class="donut-sub">by industry</span>
             </div>
+            <div id="industry-tip" style="position:absolute;pointer-events:none;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:.45rem .65rem;font-size:.78rem;line-height:1.6;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:20;white-space:nowrap;min-width:110px"></div>
           </div>
         </div>
         <div class="legend-table" id="industry-legend"></div>
