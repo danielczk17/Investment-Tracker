@@ -16,6 +16,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=installer-out
 OutputBaseFilename=InvestmentTracker-v{#AppVersion}-Setup
+SetupIconFile=icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

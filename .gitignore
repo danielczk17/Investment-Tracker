@@ -23,6 +23,7 @@ pip-log.txt
 
 # ── PyInstaller ──
 *.spec
+!investment_tracker.spec
 *.manifest
 
 # ── Virtual environments ──
