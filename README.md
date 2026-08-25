@@ -27,7 +27,7 @@ Built with Python + Flask, packaged as a standalone Windows `.exe` — no instal
 
 **Settings**
 - Dark mode
-- Configurable base currency (SGD default; 14 currencies supported)
+- Configurable base currency (SGD default; 15 currencies supported)
 - Custom markets — define any exchange with its Yahoo Finance suffix and local currency
 - Performance benchmark ticker
 

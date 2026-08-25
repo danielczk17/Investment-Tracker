@@ -61,20 +61,20 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-build.txt
 
       - name: Build with PyInstaller
         run: pyinstaller investment_tracker.spec --noconfirm
 
-      - name: Zip release bundle
+      - name: Build installer
         shell: pwsh
         run: |
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "v$("${{ github.event.inputs.version }}".TrimStart('v'))"
+            $version = "${{ github.event.inputs.version }}".TrimStart('v')
           } else {
-            $version = "${{ github.ref_name }}"
+            $version = "${{ github.ref_name }}".TrimStart('v')
           }
-          Compress-Archive -Path "dist\InvestmentTracker\*" -DestinationPath "InvestmentTracker-$version-windows.zip"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$version installer.iss
 
       - name: Read release notes
         id: notes
@@ -101,5 +101,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          files: InvestmentTracker-*.zip
+          files: installer-out\InvestmentTracker-v*-Setup.exe
           body: ${{ steps.notes.outputs.notes }}
