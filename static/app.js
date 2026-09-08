@@ -273,8 +273,8 @@
         <td>${fmtCcy(h.avg_price, h.currency)}</td>
         <td>${h.total_fees ? fmtCcy(h.total_fees, h.currency) : '<span class="neutral">—</span>'}</td>
         <td>${fmtCcy(h.total_invested, h.currency)}</td>
-        <td>${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span> <span title="Price unavailable — Yahoo Finance may be rate-limited or this ticker may be delisted." style="color:#f59e0b;cursor:help;font-size:.85em">&#9888;</span>'}</td>
-        <td>${h.current_value != null ? fmtCcy(h.current_value, h.currency) : '<span class="neutral">N/A</span>'}</td>
+        <td class="${colorCls(h.current_price != null && h.avg_price != null ? h.current_price - h.avg_price : null)}">${h.current_price != null ? fmtCcy(h.current_price, h.currency) : '<span class="neutral">N/A</span> <span title="Price unavailable — Yahoo Finance may be rate-limited or this ticker may be delisted." style="color:#f59e0b;cursor:help;font-size:.85em">&#9888;</span>'}</td>
+        <td class="${colorCls(h.current_price != null && h.avg_price != null ? h.current_price - h.avg_price : null)}">${h.current_value != null ? fmtCcy(h.current_value, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_amount)}">${h.gain_loss_amount != null ? fmtCcy(h.gain_loss_amount, h.currency) : '<span class="neutral">N/A</span>'}</td>
         <td class="${colorCls(h.gain_loss_pct)}">${fmtPct(h.gain_loss_pct)}</td>
         <td class="pos" style="font-size:.78rem">${h.current_yield != null ? fmt(h.current_yield) + '%' : '—'}</td>
