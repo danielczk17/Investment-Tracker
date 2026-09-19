@@ -227,7 +227,7 @@
   function renderHoldings(holdings) {
     const wrap = document.getElementById('holdings-wrap');
     if (!holdings.length) {
-      wrap.innerHTML = '<div class="empty">No holdings yet — add a purchase above.</div>';
+      wrap.innerHTML = '<div class="empty">No holdings yet — import from Excel or add transactions.</div>';
       return;
     }
 
@@ -2649,10 +2649,27 @@
     applyTheme(dark);
   }
 
+  // ── Privacy mode ──────────────────────────────────────────────────────────
+
+  function applyPrivacy(on) {
+    document.body.classList.toggle('privacy', on);
+    const btn = document.getElementById('privacy-btn');
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = on ? 'Show summary amounts' : 'Hide summary amounts';
+    }
+    try { localStorage.setItem('privacy', on ? '1' : '0'); } catch (e) {}
+  }
+
+  function togglePrivacy() {
+    applyPrivacy(!document.body.classList.contains('privacy'));
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', async () => {
     // Apply saved theme before anything renders to avoid flash
     applyTheme(localStorage.getItem('theme') === 'dark');
+    applyPrivacy(localStorage.getItem('privacy') === '1');
     document.getElementById('f-date').value = new Date().toISOString().slice(0, 10);
     document.getElementById('d-date').value = new Date().toISOString().slice(0, 10);
     document.getElementById('s-date').value = new Date().toISOString().slice(0, 10);

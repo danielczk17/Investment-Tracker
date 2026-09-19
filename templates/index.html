@@ -14,6 +14,7 @@
   <div class="header-right">
     <div class="spinner" id="spinner"></div>
     <span id="last-updated">—</span>
+    <button class="btn btn-ghost" id="privacy-btn" onclick="togglePrivacy()" title="Hide summary amounts" aria-pressed="false" style="padding:.35rem .6rem;font-size:.9rem;line-height:1;">&#128065;</button>
     <button class="btn btn-ghost" onclick="refreshPrices()" style="padding:.35rem .75rem;font-size:.78rem;">
       Refresh Prices
     </button>
@@ -197,7 +198,7 @@
       </div>
     </div>
     <div class="table-wrap" id="holdings-wrap">
-      <div class="empty">No holdings yet — add a purchase in Transactions.</div>
+      <div class="empty">No holdings yet — import from Excel or add transactions.</div>
     </div>
   </div>
 

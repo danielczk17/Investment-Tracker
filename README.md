@@ -79,6 +79,15 @@ python app.py
 
 Then open `http://127.0.0.1:5000` in your browser.
 
+### macOS / Linux
+
+```bash
+./run.sh            # native app window
+./run.sh --browser  # dev server, opens in your browser
+```
+
+The first run creates a `.venv` and installs the dependencies. It uses port 5050 by default because macOS AirPlay Receiver occupies 5000 (override with `PORT=...`). When run from source, data files are stored in the project folder; a packaged build stores them in `~/Library/Application Support/InvestmentTracker/` on macOS.
+
 ---
 
 ## Building a release

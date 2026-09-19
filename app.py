@@ -1,8 +1,9 @@
 """
 Investment Tracker — Flask backend.
 
-Data is stored in JSON files in %APPDATA%\\InvestmentTracker\\ (packaged) or
-alongside this script (dev mode):
+Data is stored in JSON files in the per-user app data folder (packaged) —
+%APPDATA%\\InvestmentTracker\\ on Windows, ~/Library/Application Support/InvestmentTracker
+on macOS — or alongside this script (dev mode):
   portfolio.json        — purchase records
   sells.json            — sell records
   dividends.json        — dividend records
@@ -103,13 +104,21 @@ VALID_MARKETS:   tuple      = tuple(m["name"] for m in _DEFAULT_MARKETS)
 # When in development: everything is relative to this script file.
 # ---------------------------------------------------------------------------
 IS_FROZEN = getattr(sys, 'frozen', False)
+# True when running inside a PyWebView window (packaged, or `python app.py --window`)
+WINDOW_MODE = IS_FROZEN or '--window' in sys.argv
 
 if IS_FROZEN:
     BASE_DIR     = os.path.dirname(sys.executable)
     TEMPLATE_DIR = os.path.join(sys._MEIPASS, 'templates')
     STATIC_DIR   = os.path.join(sys._MEIPASS, 'static')
-    # Store user data in %APPDATA%\InvestmentTracker — standard Windows location, works on any machine
-    DATA_DIR     = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'InvestmentTracker')
+    # Store user data in the standard per-user app data location for each OS
+    if sys.platform == 'win32':
+        _data_root = os.environ.get('APPDATA', os.path.expanduser('~'))
+    elif sys.platform == 'darwin':
+        _data_root = os.path.expanduser('~/Library/Application Support')
+    else:
+        _data_root = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
+    DATA_DIR     = os.path.join(_data_root, 'InvestmentTracker')
 else:
     BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
     TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
@@ -1238,8 +1247,17 @@ def api_backfill():
 #
 # In dev mode the file is streamed directly to the browser via send_file().
 # In packaged (frozen) mode PyWebView blocks the a.download click event, so
-# /api/export/save writes the file to DATA_DIR and opens it with os.startfile()
+# /api/export/save writes the file to DATA_DIR and opens it with _open_path()
 # instead (the user's default .xlsx handler, typically Excel).
+
+def _open_path(path: str) -> None:
+    """Open a file with the OS default handler (Windows, macOS or Linux)."""
+    if sys.platform == 'win32':
+        _open_path(path)
+    else:
+        import subprocess
+        subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', path])
+
 
 def _build_export_buf() -> tuple:
     """Build the export workbook and return (BytesIO, filename)."""
@@ -1391,7 +1409,7 @@ def api_export_save():
         with open(save_path, "wb") as f:
             f.write(buf.read())
         # Open the file directly in Excel (or default .xlsx handler)
-        os.startfile(save_path)
+        _open_path(save_path)
         return jsonify({"saved_to": save_path, "filename": filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1488,7 +1506,7 @@ def api_import_template_save():
         path     = os.path.join(DATA_DIR, filename)
         with open(path, "wb") as f:
             f.write(buf.read())
-        os.startfile(path)
+        _open_path(path)
         return jsonify({"saved_to": path, "filename": filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1778,7 +1796,7 @@ def api_get_settings():
         **settings,
         "supported_currencies": SUPPORTED_CURRENCIES,
         "currency_symbols":     ALL_CURRENCY_SYMBOLS,
-        "is_frozen":            IS_FROZEN,
+        "is_frozen":            WINDOW_MODE,
     })
 
 
@@ -1825,8 +1843,11 @@ def api_save_settings():
 #     and full tracebacks appear in the browser.
 
 if __name__ == "__main__":
-    if getattr(sys, 'frozen', False):
-        # ── Packaged as .exe — open a PyWebView app window ──────────────────
+    # Packaged builds always open a native window; from source, pass --window
+    # (e.g. `python app.py --window`, or ./run.sh) to get the same window
+    # instead of the browser-based dev server.
+    if WINDOW_MODE:
+        # ── Native app window (packaged, or --window) — open a PyWebView window ──
         import webview
 
         def run_flask():

@@ -189,6 +189,14 @@
       margin-top: .3rem;
     }
 
+    /* Privacy mode — blur the summary figures (toggled from the header eye button) */
+    body.privacy .summary-card .val,
+    body.privacy .summary-card .breakdown-val {
+      filter: blur(8px);
+      user-select: none;
+    }
+    body.privacy #privacy-btn { opacity: .55; }
+
     /* ── Cards ── */
     .card {
       background: var(--bg-card);
